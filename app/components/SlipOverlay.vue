@@ -5,25 +5,18 @@
 // you played, what the engine wanted, and the win% it cost. The loop waits here
 // until the player acknowledges — this deliberate pause IS the feedback signal the
 // trainer is built around. A light scrim keeps the board + arrow legible behind.
-import { parseUciMove } from '~/lib/uci'
+import { toFigurine } from '~/lib/notation'
 
 const props = defineProps<{
-  /** The move the player made (long-algebraic). */
+  /** SAN of the move the player made (rendered as figurine notation). */
   played: string
-  /** The engine's best move (long-algebraic) — also drawn as the board arrow. */
+  /** SAN of the engine's best move (also drawn as the board arrow). */
   best: string
   /** Win% lost vs best (≥ the slip threshold). */
   loss: number
 }>()
 
 const emit = defineEmits<{ continue: [] }>()
-
-/** 'e2e4' → 'e2→e4' (with '=Q' on a promotion) for display. */
-function pretty(uci: string): string {
-  const m = parseUciMove(uci)
-  if (!m) return uci
-  return `${m.from}→${m.to}${m.promotion ? `=${m.promotion.toUpperCase()}` : ''}`
-}
 
 function dismiss(): void {
   emit('continue')
@@ -52,11 +45,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
       <div class="moves">
         <div class="move">
           <span class="tag">You played</span>
-          <b class="you">{{ pretty(played) }}</b>
+          <b class="you">{{ toFigurine(played) }}</b>
         </div>
         <div class="move">
           <span class="tag">Engine wanted</span>
-          <b class="best">{{ pretty(best) }}</b>
+          <b class="best">{{ toFigurine(best) }}</b>
         </div>
       </div>
       <button ref="btn" class="continue" @click="dismiss">Continue →</button>

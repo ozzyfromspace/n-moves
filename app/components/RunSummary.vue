@@ -5,7 +5,7 @@
 // the move that ended it when that was a displayed slip. Buttons hand control back
 // to ChessTrainer to load the next position or retry this one. Pure presentation.
 import type { RunStatus } from '~/lib/scoring'
-import { parseUciMove } from '~/lib/uci'
+import { toFigurine } from '~/lib/notation'
 
 const props = defineProps<{
   status: RunStatus
@@ -51,12 +51,6 @@ const detail = computed(() => {
     default: return ''
   }
 })
-
-function pretty(uci: string): string {
-  const m = parseUciMove(uci)
-  if (!m) return uci
-  return `${m.from}→${m.to}${m.promotion ? `=${m.promotion.toUpperCase()}` : ''}`
-}
 
 // Sparkline geometry: win% over the plies faced, 100% at top, 50% reference
 // midline. preserveAspectRatio="none" stretches the viewBox to fill the box; the
@@ -105,9 +99,9 @@ const points = computed(() => {
       </template>
 
       <p v-if="fatalSlip" class="fatal">
-        Final move: you played <b class="you">{{ pretty(fatalSlip.played) }}</b>
+        Final move: you played <b class="you">{{ toFigurine(fatalSlip.played) }}</b>
         (<span class="loss">−{{ fatalSlip.loss.toFixed(1) }}%</span>) ·
-        engine wanted <b class="best">{{ pretty(fatalSlip.best) }}</b>
+        engine wanted <b class="best">{{ toFigurine(fatalSlip.best) }}</b>
       </p>
 
       <div class="controls">

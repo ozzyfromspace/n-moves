@@ -7,6 +7,7 @@
 // throwaway harnesses.
 import { parseUciMove } from '~/lib/uci'
 import { evalToWinProb } from '~/lib/winprob'
+import { uciToSan } from '~/lib/notation'
 import type { Move } from 'chess.js'
 import type { Color, Key } from 'chessground/types'
 import type { DrawShape } from 'chessground/draw'
@@ -46,9 +47,10 @@ const fenIndex = ref(0)
 const sessionBestN = ref(0)
 const runError = ref<string | null>(null)
 
-// The current slip (player strayed ≥ slipThreshold): drives the green best-move
-// arrow, the freeze-on-slip SlipOverlay, and — if it ended the run — RunSummary's
-// "final move" line. null when the last move matched or stayed under threshold.
+// The current slip (player strayed ≥ slipThreshold): `played`/`best` are SAN —
+// the overlays render them as figurines — plus the loss. Drives the green
+// best-move arrow, the freeze-on-slip SlipOverlay, and — if it ended the run —
+// RunSummary's "final move" line. null when the move matched or was under threshold.
 const slip = ref<{ played: string; best: string; loss: number } | null>(null)
 const arrow = ref<DrawShape[]>([])
 
@@ -90,11 +92,19 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-/** Show the engine's best move as a green arrow + one line when the player slipped. */
-function applySlip(s: ScoredMove, playedUci: string): void {
+/**
+ * Record a slip when the player strayed ≥ slipThreshold: store SAN for both the
+ * played move and the engine's best (from the pre-move position) and draw the best
+ * as a green arrow. Clears the slip otherwise.
+ */
+function applySlip(s: ScoredMove, playedSan: string, fenBefore: string): void {
   if (!s.matchedBest && s.loss >= slipThreshold.value) {
     const b = parseUciMove(s.bestMove)
-    slip.value = { played: playedUci, best: s.bestMove, loss: s.loss }
+    slip.value = {
+      played: playedSan,
+      best: uciToSan(fenBefore, s.bestMove) ?? s.bestMove,
+      loss: s.loss,
+    }
     arrow.value = b ? [{ orig: b.from as Key, dest: b.to as Key, brush: 'green' }] : []
   } else {
     slip.value = null
@@ -147,7 +157,7 @@ async function onMove(payload: { orig: Key; dest: Key }): Promise<void> {
     if (myRun !== runId) return
 
     winHistory.value.push(evalToWinProb(scored.best))
-    applySlip(scored, playedUci)
+    applySlip(scored, played.san, fenBefore)
     scoring.recordMove(scored.loss)
 
     // Terminal delivered by the player's own move (they mated/stalemated)?
