@@ -71,8 +71,14 @@ function buildConfig(): Config {
 
 onMounted(() => {
   if (!rootEl.value) return
-  cg = Chessground(rootEl.value, buildConfig())
-  if (props.autoShapes) cg.setAutoShapes(props.autoShapes)
+  // chessground's bindBoard() attaches its pointer listeners ONLY when viewOnly
+  // is false at init, and never re-binds them when you toggle viewOnly off later.
+  // A board first painted with viewOnly:true is therefore inert for its entire
+  // lifetime (it reads as a static picture). So we always initialise unlocked —
+  // listeners bound — then apply the real lock state immediately afterwards.
+  cg = Chessground(rootEl.value, { ...buildConfig(), viewOnly: false })
+  cg.set({ viewOnly: props.viewOnly })
+  cg.setAutoShapes(props.autoShapes ?? [])
 })
 
 onBeforeUnmount(() => {

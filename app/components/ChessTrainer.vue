@@ -15,7 +15,7 @@ import type { ScoredMove } from '~/composables/useScoring'
 // set. All legal, all roughly equal — fine for shaking out the loop (deliberate
 // blunders generate the drift); the real eval spectrum arrives with the dataset.
 const SAMPLE_FENS = [
-  'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4', // Italian, white to move
+  'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4', // Giuoco Piano, white to move
   'r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3', // Ruy Lopez, black to move
   'rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2', // Sicilian, black to move
 ]
