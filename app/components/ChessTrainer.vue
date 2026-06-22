@@ -12,15 +12,7 @@ import type { Move } from 'chess.js'
 import type { Color, Key } from 'chessground/types'
 import type { DrawShape } from 'chessground/draw'
 import type { ScoredMove } from '~/composables/useScoring'
-
-// Placeholder starts until usePositions (Task #6) loads the curated, eval-bucketed
-// set. All legal, all roughly equal — fine for shaking out the loop (deliberate
-// blunders generate the drift); the real eval spectrum arrives with the dataset.
-const SAMPLE_FENS = [
-  'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4', // Giuoco Piano, white to move
-  'r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3', // Ruy Lopez, black to move
-  'rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2', // Sicilian, black to move
-]
+import type { PositionRecord } from '~/lib/positions'
 
 type Phase = 'booting' | 'player' | 'scoring' | 'slip' | 'opponent' | 'over'
 
@@ -36,14 +28,17 @@ const {
   terminal,
   move,
   load,
-} = useChessGame(SAMPLE_FENS[0])
+} = useChessGame() // a real start is loaded by startRun once positions resolve
 
 const scoring = useScoring()
 const { searching, error, currentWinProb, drift, n, status, config, slipThreshold, over } = scoring
 
+const positions = usePositions()
+
 const phase = ref<Phase>('booting')
 const humanColor = ref<Color>('white')
-const fenIndex = ref(0)
+// The start currently in play — held so "Retry" reloads the exact same position.
+const currentPosition = ref<PositionRecord | null>(null)
 const sessionBestN = ref(0)
 const runError = ref<string | null>(null)
 
@@ -234,19 +229,29 @@ async function continueFromSlip(): Promise<void> {
   }
 }
 
+/** Draw a fresh start (bucket-balanced) and begin a run on it. */
 async function nextPosition(): Promise<void> {
-  fenIndex.value = (fenIndex.value + 1) % SAMPLE_FENS.length
-  await startRun(SAMPLE_FENS[fenIndex.value]!)
+  const pos = positions.pick()
+  if (!pos) {
+    runError.value = positions.error.value ?? 'No positions available.'
+    phase.value = 'over'
+    return
+  }
+  currentPosition.value = pos
+  await startRun(pos.fen)
 }
 
+/** Replay the current start from scratch (same position, fresh run). */
 async function retryPosition(): Promise<void> {
-  await startRun(SAMPLE_FENS[fenIndex.value]!)
+  if (currentPosition.value) await startRun(currentPosition.value.fen)
+  else await nextPosition()
 }
 
 onMounted(async () => {
   try {
     await scoring.init()
-    await startRun(SAMPLE_FENS[fenIndex.value]!)
+    await positions.load() // nextPosition surfaces a load failure as a run error
+    await nextPosition()
   } catch (e) {
     runError.value = (e as Error).message
     phase.value = 'over'

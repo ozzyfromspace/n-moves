@@ -1,0 +1,13 @@
+[
+  { "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4", "cpWhite": 20, "sideToMove": "white", "cpStm": 20 },
+  { "fen": "r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3", "cpWhite": 25, "sideToMove": "black", "cpStm": -25 },
+  { "fen": "rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2", "cpWhite": 30, "sideToMove": "black", "cpStm": -30 },
+  { "fen": "rnbqkbnr/pp2pppp/2p5/3p4/3PP3/8/PPP2PPP/RNBQKBNR w KQkq - 0 3", "cpWhite": 30, "sideToMove": "white", "cpStm": 30 },
+  { "fen": "rnbqkbnr/ppp2ppp/4p3/3p4/3PP3/2N5/PPP2PPP/R1BQKBNR b KQkq - 1 3", "cpWhite": 35, "sideToMove": "black", "cpStm": -35 },
+  { "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/4P3/2N2N2/PPPP1PPP/R1BQKB1R w KQkq - 4 4", "cpWhite": 15, "sideToMove": "white", "cpStm": 15 },
+  { "fen": "rnbqkbnr/ppp2ppp/4p3/3p4/2PP4/8/PP2PPPP/RNBQKBNR w KQkq - 0 3", "cpWhite": 20, "sideToMove": "white", "cpStm": 20 },
+  { "fen": "4r1k1/5ppp/8/8/4P3/5PPP/8/4R1K1 w - - 0 1", "cpWhite": 120, "sideToMove": "white", "cpStm": 120 },
+  { "fen": "4r1k1/5ppp/8/8/4P3/5PPP/8/4R1K1 b - - 0 1", "cpWhite": 120, "sideToMove": "black", "cpStm": -120 },
+  { "fen": "6k1/5ppp/8/8/8/5PPP/1B6/6K1 w - - 0 1", "cpWhite": 350, "sideToMove": "white", "cpStm": 350 },
+  { "fen": "6k1/5ppp/8/8/8/5PPP/1B6/6K1 b - - 0 1", "cpWhite": 350, "sideToMove": "black", "cpStm": -350 }
+]

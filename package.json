@@ -16,7 +16,8 @@
     "postinstall": "nuxt prepare",
     "typecheck": "nuxt typecheck",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "build:positions": "node --experimental-strip-types scripts/build-positions.ts"
   },
   "dependencies": {
     "chess.js": "^1.4.0",
