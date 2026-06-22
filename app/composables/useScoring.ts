@@ -32,7 +32,12 @@ export interface ScoredMove {
   bestMove: string
   /** True when the player's move WAS B — no second search ran, loss is 0. */
   matchedBest: boolean
-  /** Opponent reply (long-algebraic) = pv[1] of the applied search; null if none. */
+  /**
+   * Opponent reply (long-algebraic): pv[1] of the applied search, or the engine's
+   * `ponder` move when the PV is truncated — a single-move `searchmoves` search
+   * reports only the root move (pv length 1), so pv[1] is undefined but `ponder`
+   * still carries the predicted reply. null if neither is available.
+   */
   reply: string | null
 }
 
@@ -108,7 +113,7 @@ export function useScoring() {
         played: best,
         bestMove,
         matchedBest: true,
-        reply: bestAnalysis.pv[1] ?? null,
+        reply: bestAnalysis.pv[1] ?? bestAnalysis.ponder ?? null,
       }
     }
 
@@ -123,8 +128,17 @@ export function useScoring() {
       played,
       bestMove,
       matchedBest: false,
-      reply: playedAnalysis.pv[1] ?? null,
+      reply: playedAnalysis.pv[1] ?? playedAnalysis.ponder ?? null,
     }
+  }
+
+  /**
+   * A one-off best-move search of `fen`, with no run-state or live-eval side
+   * effects. Used as the opponent-reply fallback when the scoring search's PV is
+   * truncated and no ponder move is available (should be rare).
+   */
+  function searchBest(fen: string): Promise<Analysis> {
+    return engine.analyze(fen, { nodes: nodes.value })
   }
 
   /** Fold a scored move's loss into the run; returns the new run state. */
@@ -175,6 +189,7 @@ export function useScoring() {
     reset,
     prefetch,
     scoreMove,
+    searchBest,
     recordMove,
     recordTerminal,
   }

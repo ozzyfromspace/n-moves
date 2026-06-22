@@ -170,18 +170,37 @@ async function onMove(payload: { orig: Key; dest: Key }): Promise<void> {
   }
 }
 
-async function playOpponent(replyUci: string | null, myRun: number): Promise<void> {
+/** Apply a long-algebraic reply to the board; true if it was legal and applied. */
+function applyReply(uci: string | null): boolean {
+  if (!uci || uci === '(none)') return false
+  const m = parseUciMove(uci)
+  if (!m) return false
+  return move({ from: m.from, to: m.to, promotion: m.promotion }) !== null
+}
+
+async function playOpponent(suggestedReply: string | null, myRun: number): Promise<void> {
   phase.value = 'opponent'
   await delay(OPPONENT_DELAY_MS)
   if (myRun !== runId) return
 
-  if (replyUci) {
-    const m = parseUciMove(replyUci)
-    if (m) move({ from: m.from, to: m.to, promotion: m.promotion })
+  // Apply the opponent's reply. The suggested move (pv[1]/ponder from the scoring
+  // search) is free; if it's missing or somehow illegal, fall back to a dedicated
+  // best-move search so a truncated PV can never hang the game.
+  if (!applyReply(suggestedReply) && !isGameOver.value) {
+    const best = await scoring.searchBest(fen.value)
+    if (myRun !== runId) return
+    applyReply(best.bestmove)
   }
 
   // Terminal from the opponent's reply?
   if (terminal.value) { scoring.recordTerminal(); return endRun() }
+
+  // Backstop: control must return to the human now. If somehow it can't, end the
+  // run rather than leave an inert board (the exact symptom this fix targets).
+  if (turnColor.value !== humanColor.value) {
+    runError.value = 'could not apply the engine reply'
+    return endRun()
+  }
 
   phase.value = 'player'
   scoring.prefetch(fen.value).catch(() => {}) // prefetch the new position
