@@ -69,6 +69,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 .slip-overlay {
   position: absolute;
   inset: 0;
+  /* chessground pieces carry a z-index (up to 11 while dragging/animating) that
+     bubbles to the shared stacking context, so an auto-z overlay paints UNDER
+     them. Sit above the whole piece layer. */
+  z-index: 20;
   display: flex;
   align-items: flex-end;
   justify-content: center;

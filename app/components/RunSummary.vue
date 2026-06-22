@@ -122,6 +122,8 @@ const points = computed(() => {
 .run-summary {
   position: absolute;
   inset: 0;
+  /* Above the chessground piece layer (pieces carry z-index up to 11). */
+  z-index: 20;
   display: flex;
   align-items: center;
   justify-content: center;
