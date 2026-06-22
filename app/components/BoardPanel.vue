@@ -1,0 +1,125 @@
+<script setup lang="ts">
+// A controlled chessground board: position state flows in through props, the
+// user's attempted move flows out through `@move`. It holds NO chess rules —
+// the parent's single chess.js (useChessGame) validates the emitted move and
+// feeds the result back as a new `fen`, which chessground animates. Opponent
+// replies therefore need no imperative call: just update the props.
+import { Chessground } from 'chessground'
+import type { Api } from 'chessground/api'
+import type { Config } from 'chessground/config'
+import type { Color, Dests, Key, MoveMetadata } from 'chessground/types'
+import type { DrawShape } from 'chessground/draw'
+
+import 'chessground/assets/chessground.base.css'
+import 'chessground/assets/chessground.brown.css'
+import 'chessground/assets/chessground.cburnett.css'
+
+const props = withDefaults(
+  defineProps<{
+    fen: string
+    orientation?: Color
+    /** Whose turn it is — drives premove/coords and check highlighting. */
+    turnColor?: Color
+    /** Legal destinations per origin square, from chess.js. */
+    dests?: Dests
+    /** Which side the human may move now; undefined locks all pieces. */
+    movableColor?: Color | 'both'
+    lastMove?: [Key, Key]
+    check?: boolean
+    /** Hard input lock (engine thinking / frozen slip). */
+    viewOnly?: boolean
+    /** Engine annotations (e.g. the slip arrow); cleared by passing []. */
+    autoShapes?: DrawShape[]
+  }>(),
+  {
+    orientation: 'white',
+    check: false,
+    viewOnly: false,
+  },
+)
+
+const emit = defineEmits<{
+  move: [payload: { orig: Key; dest: Key; metadata: MoveMetadata }]
+}>()
+
+const rootEl = ref<HTMLElement | null>(null)
+let cg: Api | undefined
+
+function buildConfig(): Config {
+  return {
+    fen: props.fen,
+    orientation: props.orientation,
+    turnColor: props.turnColor,
+    lastMove: props.lastMove,
+    check: props.check,
+    viewOnly: props.viewOnly,
+    coordinates: true,
+    animation: { enabled: true, duration: 200 },
+    highlight: { lastMove: true, check: true },
+    movable: {
+      free: false, // only chess.js-supplied dests are legal
+      color: props.movableColor,
+      dests: props.dests,
+      showDests: true,
+      events: {
+        after: (orig, dest, metadata) => emit('move', { orig, dest, metadata }),
+      },
+    },
+    drawable: { enabled: true, visible: true },
+  }
+}
+
+onMounted(() => {
+  if (!rootEl.value) return
+  cg = Chessground(rootEl.value, buildConfig())
+  if (props.autoShapes) cg.setAutoShapes(props.autoShapes)
+})
+
+onBeforeUnmount(() => {
+  cg?.destroy()
+  cg = undefined
+})
+
+// One atomic re-sync whenever any position-affecting prop changes. Vue batches
+// the simultaneous updates from a single chess.js move into one cg.set().
+watch(
+  () => [
+    props.fen,
+    props.orientation,
+    props.turnColor,
+    props.dests,
+    props.movableColor,
+    props.lastMove,
+    props.check,
+    props.viewOnly,
+  ],
+  () => {
+    cg?.set({
+      fen: props.fen,
+      orientation: props.orientation,
+      turnColor: props.turnColor,
+      lastMove: props.lastMove,
+      check: props.check,
+      viewOnly: props.viewOnly,
+      movable: { color: props.movableColor, dests: props.dests },
+    })
+  },
+)
+
+watch(
+  () => props.autoShapes,
+  shapes => cg?.setAutoShapes(shapes ?? []),
+)
+</script>
+
+<template>
+  <div ref="rootEl" class="cg-wrap board" />
+</template>
+
+<style scoped>
+/* chessground fills this box; it has no intrinsic size, so we give it one. */
+.board {
+  width: var(--board-size, min(80vmin, 480px));
+  height: var(--board-size, min(80vmin, 480px));
+}
+</style>
