@@ -1,11 +1,28 @@
 <script setup lang="ts">
 // Sidebar history: the most recent runs, read straight from the shared useHistory
-// store (IndexedDB-backed). Pure presentation — ChessTrainer appends runs and calls
-// load(); this just shows what's there, and quietly shows nothing extra before the
-// first run is recorded.
+// store (IndexedDB-backed). Pure presentation + a two-step "Clear" that wipes the
+// log — ChessTrainer appends runs and calls load(); this shows what's there.
 import { RUN_STATUS_SHORT, isHeld, type RunRecord } from '~/lib/history'
 
-const { recentRuns, error } = useHistory()
+const { recentRuns, error, clear } = useHistory()
+
+// Two-step clear: the first click arms ("Clear all?"), the second wipes. It disarms
+// itself after 3s so a stray click can't nuke the log a beat later.
+const confirming = ref(false)
+let resetTimer: ReturnType<typeof setTimeout> | undefined
+
+function onClear(): void {
+  if (!confirming.value) {
+    confirming.value = true
+    resetTimer = setTimeout(() => (confirming.value = false), 3000)
+    return
+  }
+  clearTimeout(resetTimer)
+  confirming.value = false
+  void clear()
+}
+
+onBeforeUnmount(() => clearTimeout(resetTimer))
 
 /** Epoch ms → a terse "3m" / "2h" / "1d" age. */
 function ago(at: number): string {
@@ -25,7 +42,12 @@ function label(run: RunRecord): string {
 
 <template>
   <section class="history">
-    <p v-if="recentRuns.length" class="caption">Recent runs</p>
+    <div v-if="recentRuns.length" class="head">
+      <p class="caption">Recent runs</p>
+      <button class="clear" :class="{ confirming }" @click="onClear">
+        {{ confirming ? 'Clear all?' : 'Clear' }}
+      </button>
+    </div>
 
     <ul v-if="recentRuns.length" class="runs">
       <li v-for="(run, i) in recentRuns" :key="run.id ?? i" class="run">
@@ -52,6 +74,12 @@ function label(run: RunRecord): string {
   flex-direction: column;
   gap: 0.55rem;
 }
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
 .caption {
   margin: 0;
   font-family: var(--font-display);
@@ -59,6 +87,28 @@ function label(run: RunRecord): string {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-muted);
+}
+.clear {
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  padding: 0.12rem 0.5rem;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.clear:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+.clear.confirming {
+  color: var(--bad);
+  border-color: var(--bad);
+  background: rgba(255, 59, 92, 0.12);
 }
 .runs {
   list-style: none;

@@ -117,47 +117,52 @@ const points = computed(() => {
 
 <template>
   <section class="run-summary" aria-label="Run over">
-    <div :class="['card', tone]">
-      <p :class="['headline', tone]">{{ headline }}</p>
-      <p v-if="detail" class="detail">{{ detail }}</p>
+    <!-- Outer = the neon gradient border (tone-reactive); inner = the dark body.
+         A nested frame, not an ::after layer — clip-path traps a -1 layer above the
+         body, which would flood the whole card with the border colour. -->
+    <div :class="['card-frame', tone]">
+      <div class="card">
+        <p :class="['headline', tone]">{{ headline }}</p>
+        <p v-if="detail" class="detail">{{ detail }}</p>
 
-      <div class="stats">
-        <div class="stat">
-          <span class="num tnum">{{ n }}<span class="den">/{{ target }}</span></span>
-          <span class="lbl">survived</span>
+        <div class="stats">
+          <div class="stat">
+            <span class="num tnum">{{ n }}<span class="den">/{{ target }}</span></span>
+            <span class="lbl">survived</span>
+          </div>
+          <div class="stat">
+            <span class="num tnum">{{ drift.toFixed(0) }}<span class="den">/{{ budget }}</span></span>
+            <span class="lbl">drift spent</span>
+          </div>
+          <div class="stat">
+            <span class="num tnum">{{ level }}</span>
+            <span class="lbl">level<template v-if="advanced"> ▲</template><template v-else-if="demoted"> ▼</template></span>
+          </div>
         </div>
-        <div class="stat">
-          <span class="num tnum">{{ drift.toFixed(0) }}<span class="den">/{{ budget }}</span></span>
-          <span class="lbl">drift spent</span>
+
+        <div v-if="showPips" class="track">
+          <span class="pips" role="img" :aria-label="`${pipLit} of ${pipTotal}`">
+            <span v-for="i in pipTotal" :key="i" :class="['pip', { on: i <= pipLit, strike: busted }]" />
+          </span>
+          <span class="track-cap">{{ pipCap }}</span>
         </div>
-        <div class="stat">
-          <span class="num tnum">{{ level }}</span>
-          <span class="lbl">level<template v-if="advanced"> ▲</template><template v-else-if="demoted"> ▼</template></span>
+
+        <p v-if="status === 'blunder' && fatalLoss != null" class="cost">
+          That move cost <span class="loss tnum">−{{ fatalLoss.toFixed(1) }}%</span> — find a better one.
+        </p>
+
+        <template v-if="winHistory.length">
+          <svg class="spark" :viewBox="`0 0 ${W} ${H}`" preserveAspectRatio="none">
+            <line class="mid" :x1="0" :y1="midY" :x2="W" :y2="midY" />
+            <polyline :class="['line', tone]" :points="points" />
+          </svg>
+          <p class="spark-cap">win% across the run</p>
+        </template>
+
+        <div class="controls">
+          <button class="nm-btn" @click="emit('next')">Next position →</button>
+          <button class="nm-btn ghost" @click="emit('retry')">Retry this one</button>
         </div>
-      </div>
-
-      <div v-if="showPips" class="track">
-        <span class="pips" role="img" :aria-label="`${pipLit} of ${pipTotal}`">
-          <span v-for="i in pipTotal" :key="i" :class="['pip', { on: i <= pipLit, strike: busted }]" />
-        </span>
-        <span class="track-cap">{{ pipCap }}</span>
-      </div>
-
-      <p v-if="status === 'blunder' && fatalLoss != null" class="cost">
-        That move cost <span class="loss tnum">−{{ fatalLoss.toFixed(1) }}%</span> — find a better one.
-      </p>
-
-      <template v-if="winHistory.length">
-        <svg class="spark" :viewBox="`0 0 ${W} ${H}`" preserveAspectRatio="none">
-          <line class="mid" :x1="0" :y1="midY" :x2="W" :y2="midY" />
-          <polyline :class="['line', tone]" :points="points" />
-        </svg>
-        <p class="spark-cap">win% across the run</p>
-      </template>
-
-      <div class="controls">
-        <button class="nm-btn" @click="emit('next')">Next position →</button>
-        <button class="nm-btn ghost" @click="emit('retry')">Retry this one</button>
       </div>
     </div>
   </section>
@@ -166,11 +171,34 @@ const points = computed(() => {
 <style scoped>
 .run-summary {
   margin-top: 1rem;
-  filter: drop-shadow(0 14px 26px rgba(0, 0, 0, 0.55));
+  filter: drop-shadow(0 14px 26px rgba(0, 0, 0, 0.45));
 }
-.card {
-  position: relative;
+/* Outer frame = the tone-reactive neon border; the 2px padding is the border thickness. */
+.card-frame {
   --c: 16px;
+  padding: 2px;
+  clip-path: polygon(
+    0 0,
+    calc(100% - var(--c)) 0,
+    100% var(--c),
+    100% 100%,
+    var(--c) 100%,
+    0 calc(100% - var(--c))
+  );
+  background: linear-gradient(135deg, var(--hairline), var(--text-dim));
+}
+.card-frame.good {
+  background: linear-gradient(135deg, var(--good), var(--neon-cyan));
+}
+.card-frame.bad {
+  background: linear-gradient(135deg, var(--neon-magenta), var(--bad));
+}
+.card-frame.neutral {
+  background: linear-gradient(135deg, var(--hairline), var(--text-dim));
+}
+/* Inner = the dark (theme-aware) body. Same notch, slightly inset by the frame padding. */
+.card {
+  --c: 15px;
   clip-path: polygon(
     0 0,
     calc(100% - var(--c)) 0,
@@ -182,25 +210,6 @@ const points = computed(() => {
   background: linear-gradient(160deg, var(--surface-2), var(--surface) 58%, var(--bg-sunken));
   padding: 1.1rem 1.3rem 1.2rem;
 }
-/* Neon gradient border that follows the notch (behind the body). */
-.card::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  margin: -1.5px;
-  clip-path: inherit;
-  background: linear-gradient(135deg, var(--hairline), var(--text-dim));
-}
-.card.good::after {
-  background: linear-gradient(135deg, var(--good), var(--neon-cyan));
-}
-.card.bad::after {
-  background: linear-gradient(135deg, var(--neon-magenta), var(--bad));
-}
-.card > * {
-  position: relative;
-}
 .headline {
   margin: 0;
   font-family: var(--font-display);
@@ -211,11 +220,11 @@ const points = computed(() => {
 }
 .headline.good {
   color: var(--good);
-  text-shadow: 0 0 18px rgba(43, 255, 136, 0.5);
+  text-shadow: 0 0 18px rgba(43, 255, 136, 0.45);
 }
 .headline.bad {
   color: var(--bad);
-  text-shadow: 0 0 18px rgba(255, 59, 92, 0.45);
+  text-shadow: 0 0 18px rgba(255, 59, 92, 0.4);
 }
 .headline.neutral {
   color: var(--text-muted);

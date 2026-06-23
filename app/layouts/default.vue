@@ -15,11 +15,24 @@
         <ThemeToggle />
       </nav>
     </header>
-    <slot />
+    <div class="page"><slot /></div>
+
+    <footer class="footer">
+      <p>Vibe coded with <span class="heart">❤️</span> by <span class="sig">ozzyfromspace</span></p>
+    </footer>
   </div>
 </template>
 
 <style scoped>
+.frame {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+.page {
+  flex: 1 0 auto;
+}
 .topbar {
   position: sticky;
   top: 0;
@@ -76,6 +89,29 @@
   border-color: var(--hairline);
   background: var(--surface);
   box-shadow: inset 0 0 12px rgba(33, 243, 255, 0.12);
+}
+.footer {
+  flex-shrink: 0;
+  padding: 1.4rem 1rem 2rem;
+  border-top: 1px solid var(--hairline);
+  text-align: center;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+.footer p {
+  margin: 0;
+}
+.footer .heart {
+  display: inline-block;
+  animation: heart-pulse 1.6s ease-in-out infinite;
+}
+.footer .sig {
+  color: var(--neon-cyan);
+  font-weight: 600;
+}
+@keyframes heart-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.22); }
 }
 @media (max-width: 30rem) {
   .topbar {

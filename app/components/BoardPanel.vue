@@ -169,10 +169,26 @@ watch(
   background: rgba(33, 243, 255, 0.42);
 }
 .board :deep(square.move-dest) {
-  background: radial-gradient(rgba(33, 243, 255, 0.55) 21%, transparent 22%);
+  /* Bright cyan core + dark navy rim so the dot reads on light AND dark squares
+     (a flat translucent cyan is too close to the pale squares). Fixed colours —
+     the board is theme-independent. */
+  background: radial-gradient(
+    circle,
+    #21f3ff 15%,
+    rgba(6, 14, 26, 0.62) 15%,
+    rgba(6, 14, 26, 0.62) 21%,
+    transparent 22%
+  );
 }
 .board :deep(square.oc.move-dest) {
-  background: radial-gradient(transparent 0%, transparent 58%, rgba(255, 43, 214, 0.6) 60%);
+  /* capture: a bold magenta ring hugging the square edge. */
+  background: radial-gradient(
+    transparent 0%,
+    transparent 54%,
+    rgba(255, 43, 214, 0.78) 56%,
+    rgba(255, 43, 214, 0.78) 64%,
+    transparent 66%
+  );
 }
 .board :deep(square.check) {
   background: radial-gradient(
