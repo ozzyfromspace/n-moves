@@ -17,8 +17,9 @@ dist
 test
 scripts
 
-# The large built dataset is regenerated offline; the app ships the sample
-public/positions/positions.json
+# NOTE: public/positions/positions.json is NOT ignored — the app fetches it at
+# runtime from the static deploy, so it must ship. Ignoring it (as a prior version
+# did) silently drops the app onto the 11-row sample on every deploy.
 
 # Repo / logs / OS / editor
 .git
