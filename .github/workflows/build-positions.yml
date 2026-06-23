@@ -1,0 +1,161 @@
+# Regenerate the curated start set from the Lichess eval dump and open a PR with it.
+#
+# Run it from the Actions tab → "Build positions" → "Run workflow". Defaults to
+# ~10k starts (2000 per eval bucket × 5 buckets); set `per_bucket` to change the goal
+# (e.g. 4000 → ~20k). The job streams a prefix of the dump, samples it, validates the
+# result, and opens a PR you review and merge — it never writes to `main` directly.
+#
+# One-time setup: Settings → Actions → General → Workflow permissions →
+# enable "Allow GitHub Actions to create and approve pull requests" (the built-in
+# GITHUB_TOKEN can't open PRs without it). The write scopes themselves are below.
+name: Build positions
+
+on:
+  workflow_dispatch:
+    inputs:
+      per_bucket:
+        description: "Positions per eval bucket (× 5 buckets = the goal; 2000 → ~10k)"
+        required: true
+        default: "2000"
+      prefix_mb:
+        description: "MB of the compressed dump to stream (raise alongside per_bucket so the rare buckets fill)"
+        required: true
+        default: "400"
+      max_lines:
+        description: "Max dump lines to scan"
+        required: true
+        default: "8000000"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# One build at a time; let a running one finish rather than cancelling it.
+concurrency:
+  group: build-positions
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4 # version comes from package.json "packageManager"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24" # >= 23 imports the builder's .ts files directly
+          cache: pnpm
+
+      - name: Install deps
+        # The builder only needs chess.js + the in-repo .ts libs; skip lifecycle
+        # scripts (e.g. nuxt prepare) — they're irrelevant here and just add time.
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Ensure zstd
+        run: zstd --version || (sudo apt-get update && sudo apt-get install -y zstd)
+
+      - name: Validate inputs
+        env:
+          PER_BUCKET: ${{ inputs.per_bucket }}
+          PREFIX_MB: ${{ inputs.prefix_mb }}
+          MAX_LINES: ${{ inputs.max_lines }}
+        run: |
+          for pair in "per_bucket=$PER_BUCKET" "prefix_mb=$PREFIX_MB" "max_lines=$MAX_LINES"; do
+            name=${pair%%=*}; val=${pair#*=}
+            if ! [[ "$val" =~ ^[0-9]+$ ]] || [ "$val" -le 0 ]; then
+              echo "::error::$name must be a positive integer (got '$val')"
+              exit 1
+            fi
+          done
+
+      - name: Download dump prefix
+        env:
+          PREFIX_MB: ${{ inputs.prefix_mb }}
+        run: |
+          BYTES=$(( PREFIX_MB * 1000000 ))
+          echo "Streaming the first ${PREFIX_MB} MB (${BYTES} bytes) of the eval dump…"
+          curl -fsSL -r "0-${BYTES}" \
+            https://database.lichess.org/lichess_db_eval.jsonl.zst -o eval.zst
+          ls -lh eval.zst
+
+      - name: Generate positions
+        shell: bash # process substitution below needs bash
+        env:
+          PER_BUCKET: ${{ inputs.per_bucket }}
+          MAX_LINES: ${{ inputs.max_lines }}
+        run: |
+          # Decompress straight into the builder (no multi-GB temp file). zstd's
+          # "premature end" on the truncated tail is expected and harmless — node
+          # has already read every complete line by then.
+          node --experimental-strip-types scripts/build-positions.ts \
+            --source <(zstd -d -c eval.zst) \
+            --per-bucket "$PER_BUCKET" \
+            --max-lines "$MAX_LINES"
+
+      - name: Validate + summarize
+        run: |
+          node -e '
+            const fs = require("fs");
+            const a = JSON.parse(fs.readFileSync("public/positions/positions.json", "utf8"));
+            const L = 800;
+            const b = c => c < -L ? null : c < -150 ? "defending" : c < -50 ? "worse" : c <= 50 ? "equal" : c <= 150 ? "better" : c <= L ? "winning" : null;
+            const order = ["defending", "worse", "equal", "better", "winning"];
+            const dist = {};
+            let mism = 0;
+            for (const r of a) {
+              const k = b(r.cpStm);
+              dist[k] = (dist[k] || 0) + 1;
+              const stm = r.fen.split(" ")[1] === "b" ? "black" : "white";
+              const exp = stm === "black" ? -r.cpWhite : r.cpWhite;
+              if (typeof r.cpWhite !== "number" || stm !== r.sideToMove || exp !== r.cpStm) mism++;
+            }
+            const distinct = new Set(a.map(r => r.fen)).size;
+            if (!a.length || distinct !== a.length || mism) {
+              console.error("INVALID: rows=" + a.length + " distinct=" + distinct + " mismatches=" + mism);
+              process.exit(1);
+            }
+            let md = "**" + a.length + "** starts · all distinct · legal · perspective-consistent\n\n";
+            md += "| bucket | count |\n|---|---|\n";
+            for (const k of order) md += "| " + k + " | " + (dist[k] || 0) + " |\n";
+            md += "| **total** | **" + a.length + "** |\n";
+            process.stdout.write(md);
+          ' > "$RUNNER_TEMP/summary.md"
+          cat "$RUNNER_TEMP/summary.md"
+          cat "$RUNNER_TEMP/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove the dump
+        run: rm -f eval.zst
+
+      - name: Open a PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PER_BUCKET: ${{ inputs.per_bucket }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          BRANCH="bot/positions-$(date -u +%Y%m%d-%H%M%S)"
+          git switch -c "$BRANCH"
+          git add public/positions/positions.json
+          if git diff --cached --quiet; then
+            echo "positions.json is unchanged — nothing to open a PR for."
+            exit 0
+          fi
+          git commit -m "Regenerate position set (${PER_BUCKET}/bucket)"
+          git push -u origin "$BRANCH"
+          {
+            echo "Regenerated from the Lichess eval dump via \`build-positions\` (\`--per-bucket ${PER_BUCKET}\`)."
+            echo
+            cat "$RUNNER_TEMP/summary.md"
+            echo
+            echo "> Needs a **redeploy** to reach the live site."
+            echo
+            echo "🤖 Opened by the \`build-positions\` workflow."
+          } > "$RUNNER_TEMP/body.md"
+          gh pr create --base main --head "$BRANCH" \
+            --title "Regenerate position set (${PER_BUCKET}/bucket)" \
+            --body-file "$RUNNER_TEMP/body.md"

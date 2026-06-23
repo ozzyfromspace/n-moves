@@ -25,6 +25,11 @@ logs
 .DS_Store
 *.tsbuildinfo
 
-# The built positions dataset ships with the app — the offline build script
-# (scripts/build-positions.ts) isn't run in CI, so positions.json is committed
-# alongside the sample. Regenerate it with that script (see its header).
+# The built positions dataset ships committed with the app (alongside the sample).
+# Regenerate it with scripts/build-positions.ts (see its header) or the "Build
+# positions" Action, which opens a PR with a fresh set rather than committing here.
+
+# Raw Lichess dump prefixes fetched while (re)building positions — never commit
+# these (hundreds of MB); the builder reads them and the output is positions.json.
+/eval.zst
+/eval.jsonl
