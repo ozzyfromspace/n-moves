@@ -1,0 +1,30 @@
+# Files Vercel never needs to build or serve n-moves. The deploy build runs
+# `nuxt build`, which only uses app/, public/, and the root configs; everything
+# below is dev-only or regenerated. (Ignored for CLI/source uploads; the
+# recommended prebuilt deploy ships .vercel/output and skips source entirely.)
+
+# Dependencies & build artifacts (rebuilt remotely / shipped via --prebuilt)
+node_modules
+.nuxt
+.nitro
+.output
+.vercel
+.cache
+.data
+dist
+
+# Tests and the offline dataset builder never run during a deploy
+test
+scripts
+
+# The large built dataset is regenerated offline; the app ships the sample
+public/positions/positions.json
+
+# Repo / logs / OS / editor
+.git
+*.log
+logs
+.DS_Store
+*.tsbuildinfo
+.env
+.env.*

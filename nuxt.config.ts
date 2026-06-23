@@ -12,6 +12,25 @@ export default defineNuxtConfig({
 
   devtools: { enabled: true },
 
+  // Global manga/anime theme (tokens + base + reusable classes) and the display/body
+  // webfonts (Bebas Neue for headers, Inter for body + tabular stat numbers).
+  css: ['~/assets/css/theme.css'],
+  app: {
+    head: {
+      meta: [
+        { name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover' },
+      ],
+      link: [
+        { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
+        { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' },
+        {
+          rel: 'stylesheet',
+          href: 'https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap',
+        },
+      ],
+    },
+  },
+
   // Deploy target. There's no server logic (ssr:false), so at deploy time
   // (Task 8) we may switch to 'vercel-static' / `nuxt generate` for a purely
   // static deploy; 'vercel' is fine and serves the SPA fallback meanwhile.
