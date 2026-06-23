@@ -39,9 +39,9 @@ pnpm build        # production build (Vercel preset) — see DEPLOY.md
 Starts are sampled offline from the [Lichess evaluations dump](https://database.lichess.org/#evals) into `public/positions/positions.json` (committed). A small `positions.sample.json` is the fallback if the full set is missing. To regenerate (the script header has the full `zstd`-CLI recipe):
 
 ```bash
-curl -s -r 0-80000000 https://database.lichess.org/lichess_db_eval.jsonl.zst -o eval.zst
+curl -s -r 0-400000000 https://database.lichess.org/lichess_db_eval.jsonl.zst -o eval.zst
 zstd -d -c eval.zst > eval.jsonl     # a truncation error at the tail is expected
-node --experimental-strip-types scripts/build-positions.ts --source eval.jsonl --per-bucket 800
+node --experimental-strip-types scripts/build-positions.ts --source eval.jsonl --per-bucket 2000 --max-lines 8000000
 ```
 
 ## License
