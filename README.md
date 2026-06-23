@@ -59,4 +59,4 @@ Copyright © 2026 ozzyfromspace.
 
 ---
 
-Vibe coded with ❤️ by **ozzyfromspace**.
+Vibe coded with ❤️ by **[ozzyfromspace](https://github.com/ozzyfromspace)**.

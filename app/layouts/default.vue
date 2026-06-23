@@ -18,7 +18,10 @@
     <div class="page"><slot /></div>
 
     <footer class="footer">
-      <p>Vibe coded with <span class="heart">❤️</span> by <span class="sig">ozzyfromspace</span></p>
+      <p>
+        Vibe coded with ❤️ by
+        <a class="sig" href="https://github.com/ozzyfromspace" target="_blank" rel="noopener noreferrer">ozzyfromspace</a>
+      </p>
     </footer>
   </div>
 </template>
@@ -101,17 +104,13 @@
 .footer p {
   margin: 0;
 }
-.footer .heart {
-  display: inline-block;
-  animation: heart-pulse 1.6s ease-in-out infinite;
-}
 .footer .sig {
   color: var(--neon-cyan);
   font-weight: 600;
+  text-decoration: none;
 }
-@keyframes heart-pulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.22); }
+.footer .sig:hover {
+  text-decoration: underline;
 }
 @media (max-width: 30rem) {
   .topbar {
