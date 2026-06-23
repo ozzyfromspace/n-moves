@@ -254,24 +254,26 @@ onBeforeUnmount(() => { runId++ })
 <template>
   <main class="trainer">
     <header class="head">
-      <h1>n-moves</h1>
-      <p class="tagline">Don't try to win — try not to lose ground.</p>
+      <p class="kicker">Drift trainer</p>
+      <h1 class="tagline">Don't try to win.<br><span class="hl">Try not to lose ground.</span></h1>
     </header>
 
     <div class="layout">
       <div class="board-col">
-        <div class="board-stage">
-          <BoardPanel
-            :fen="fen"
-            :orientation="orientation"
-            :turn-color="turnColor"
-            :dests="dests"
-            :movable-color="movableColor"
-            :last-move="lastMove"
-            :check="check"
-            :view-only="locked"
-            @move="onMove"
-          />
+        <div class="board-frame">
+          <div class="board-stage">
+            <BoardPanel
+              :fen="fen"
+              :orientation="orientation"
+              :turn-color="turnColor"
+              :dests="dests"
+              :movable-color="movableColor"
+              :last-move="lastMove"
+              :check="check"
+              :view-only="locked"
+              @move="onMove"
+            />
+          </div>
         </div>
 
         <p :class="['status', phase]">
@@ -325,23 +327,34 @@ onBeforeUnmount(() => { runId++ })
 
 <style scoped>
 .trainer {
-  max-width: 60rem;
-  margin: 2rem auto;
-  padding: 0 1.5rem;
-  font-family: system-ui, -apple-system, sans-serif;
-  color: #1a1a1a;
+  max-width: 64rem;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 4rem;
 }
 .head {
-  margin-bottom: 1.25rem;
+  margin-bottom: 1.6rem;
 }
-h1 {
-  font-size: 1.75rem;
-  margin: 0;
-  letter-spacing: -0.02em;
+.kicker {
+  margin: 0 0 0.3rem;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--neon-cyan);
 }
 .tagline {
-  margin: 0.15rem 0 0;
-  color: #666;
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(1.9rem, 5vw, 2.8rem);
+  line-height: 0.95;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.tagline .hl {
+  color: var(--neon-cyan);
+  text-shadow: 0 0 18px rgba(33, 243, 255, 0.4);
 }
 .layout {
   display: flex;
@@ -352,40 +365,88 @@ h1 {
 .board-col {
   flex: 0 0 auto;
 }
+.board-frame {
+  position: relative;
+  padding: 12px;
+  --c: 18px;
+  clip-path: polygon(
+    0 0,
+    calc(100% - var(--c)) 0,
+    100% var(--c),
+    100% 100%,
+    var(--c) 100%,
+    0 calc(100% - var(--c))
+  );
+  background: linear-gradient(160deg, var(--surface-2), var(--surface) 60%, var(--bg-sunken));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.board-frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  margin: -1.5px;
+  clip-path: inherit;
+  background: linear-gradient(135deg, var(--neon-cyan), var(--neon-violet), var(--neon-magenta));
+}
+.board-frame::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  clip-path: inherit;
+  background: radial-gradient(var(--neon-cyan) 1px, transparent 1.3px) 0 0 / 8px 8px;
+  -webkit-mask-image: linear-gradient(315deg, #000 0%, transparent 28%);
+  mask-image: linear-gradient(315deg, #000 0%, transparent 28%);
+  opacity: 0.18;
+}
 .board-stage {
   position: relative;
+  z-index: 1;
   width: var(--board-size, min(80vmin, 480px));
   height: var(--board-size, min(80vmin, 480px));
 }
 .side {
   flex: 1 1 16rem;
-  min-width: 15rem;
+  min-width: min(15rem, 100%);
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1.3rem;
 }
 .status {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
-  margin: 0.85rem 0 0;
-  font-size: 0.95rem;
-  font-weight: 600;
-  min-height: 1.4rem;
+  gap: 0.5rem;
+  margin: 1rem 0 0;
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  min-height: 1.6rem;
 }
-.status.over {
-  color: #374151;
+.status.player {
+  color: var(--neon-cyan);
 }
 .spinner {
-  width: 0.7rem;
-  height: 0.7rem;
-  border: 2px solid #c7d2fe;
-  border-top-color: #2563eb;
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid rgba(33, 243, 255, 0.25);
+  border-top-color: var(--neon-cyan);
   border-radius: 50%;
   display: inline-block;
   animation: spin 0.7s linear infinite;
 }
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+@media (max-width: 36rem) {
+  .trainer {
+    padding: 1.25rem 1rem 3rem;
+  }
+  .layout {
+    gap: 1.4rem;
+    justify-content: center;
+  }
 }
 </style>

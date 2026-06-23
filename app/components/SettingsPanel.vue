@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // Collapsible sidebar settings: the run tunables (search work, drift-per-move, the
-// clean-runs-to-climb and busts-to-drop thresholds, blunder cap) and the
-// eval-range filter. Bound straight to the shared reactive settings (useSettings), so
-// every change persists to localStorage via that composable. Changes take effect on the
+// clean-runs-to-climb and busts-to-drop thresholds, blunder cap) and the eval-range
+// filter. Bound straight to the shared reactive settings (useSettings), so every
+// change persists to localStorage via that composable. Changes take effect on the
 // NEXT run — ChessTrainer snapshots the settings + level when a run starts, so a mid-run
 // tweak can't skew an in-flight comparison. Sliders are clamped to lib/settings' bounds;
 // the eval filter is two bucket dropdowns written as a cp range.
@@ -147,9 +147,10 @@ function fmtNodes(n: number): string {
 
 <style scoped>
 .settings {
-  font-family: system-ui, -apple-system, sans-serif;
-  border: 1px solid #e5e7eb;
-  border-radius: 0.55rem;
+  border-radius: 12px;
+  background: linear-gradient(160deg, var(--surface-2), var(--surface) 60%, var(--bg-sunken));
+  border: 1px solid var(--hairline);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 10px 30px -14px rgba(0, 0, 0, 0.7);
   overflow: hidden;
 }
 .head {
@@ -157,68 +158,109 @@ function fmtNodes(n: number): string {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.6rem 0.8rem;
-  font: inherit;
-  font-size: 0.92rem;
-  font-weight: 600;
-  color: #374151;
-  background: #f9fafb;
+  padding: 0.7rem 0.9rem;
   border: 0;
   cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text);
+  background: transparent;
+  transition: color 0.15s ease;
 }
 .head:hover {
-  background: #f3f4f6;
+  color: var(--neon-cyan);
 }
 .title {
   flex: 1;
   text-align: left;
 }
 .tag {
-  font-size: 0.66rem;
+  font-family: var(--font-body);
+  font-size: 0.6rem;
   font-weight: 700;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #1d4ed8;
-  background: #dbeafe;
-  padding: 0.1rem 0.35rem;
-  border-radius: 0.3rem;
+  color: var(--text-on-neon);
+  background: var(--neon-cyan);
+  padding: 0.12rem 0.42rem;
+  border-radius: 4px;
 }
 .chev {
-  color: #9ca3af;
+  color: var(--text-muted);
   transition: transform 0.18s ease;
 }
 .chev.open {
   transform: rotate(180deg);
 }
 .body {
-  padding: 0.7rem 0.8rem 0.85rem;
+  padding: 0.45rem 0.9rem 0.9rem;
   display: flex;
   flex-direction: column;
-  gap: 0.7rem;
+  gap: 0.8rem;
+  border-top: 1px solid var(--hairline);
 }
 .row {
   display: grid;
-  grid-template-columns: 5.2rem 1fr 2.6rem;
+  grid-template-columns: 5.4rem 1fr 2.4rem;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.55rem;
 }
 .k {
-  font-size: 0.78rem;
-  color: #6b7280;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 .row input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
   width: 100%;
-  accent-color: #2563eb;
+  height: 16px;
+  background: transparent;
+  cursor: pointer;
+}
+.row input[type='range']::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 4px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--hairline);
+}
+.row input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: var(--neon-cyan);
+  box-shadow: 0 0 8px rgba(33, 243, 255, 0.75);
+}
+.row input[type='range']::-moz-range-track {
+  height: 5px;
+  border-radius: 4px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--hairline);
+}
+.row input[type='range']::-moz-range-thumb {
+  width: 15px;
+  height: 15px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--neon-cyan);
+  box-shadow: 0 0 8px rgba(33, 243, 255, 0.75);
 }
 .v {
-  font-size: 0.82rem;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
   text-align: right;
+  color: var(--neon-cyan);
   font-variant-numeric: tabular-nums;
-  color: #111827;
 }
 .range {
-  grid-template-columns: 5.2rem 1fr;
+  grid-template-columns: 5.4rem 1fr;
 }
 .selects {
   display: flex;
@@ -230,35 +272,40 @@ function fmtNodes(n: number): string {
   min-width: 0;
   font: inherit;
   font-size: 0.78rem;
-  padding: 0.2rem 0.25rem;
-  border: 1px solid #d1d5db;
-  border-radius: 0.3rem;
-  background: #fff;
+  padding: 0.28rem 0.3rem;
+  color: var(--text);
+  background: var(--bg-sunken);
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
 }
 .dash {
-  color: #9ca3af;
+  color: var(--text-dim);
 }
 .note {
   margin: 0.1rem 0 0;
-  font-size: 0.72rem;
-  color: #9ca3af;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  line-height: 1.45;
 }
 .actions {
   display: flex;
   gap: 0.5rem;
 }
 .reset {
-  font: inherit;
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: #4b5563;
-  background: #fff;
-  border: 1px solid #d1d5db;
-  border-radius: 0.35rem;
-  padding: 0.35rem 0.6rem;
+  font-family: var(--font-display);
+  font-size: 0.92rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: 7px;
+  padding: 0.32rem 0.7rem;
   cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
 }
 .reset:hover {
-  border-color: #9ca3af;
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
 }
 </style>

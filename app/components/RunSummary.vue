@@ -48,7 +48,7 @@ const tone = computed(() =>
 
 const headline = computed(() => {
   if (props.runError) return 'Run stopped'
-  if (advanced.value) return 'Level up! 🎉'
+  if (advanced.value) return 'Level up!'
   if (demoted.value) return 'Demoted ↓'
   switch (props.status) {
     case 'max-n': return 'Clean run ✓'
@@ -117,21 +117,21 @@ const points = computed(() => {
 
 <template>
   <section class="run-summary" aria-label="Run over">
-    <div class="card">
+    <div :class="['card', tone]">
       <p :class="['headline', tone]">{{ headline }}</p>
       <p v-if="detail" class="detail">{{ detail }}</p>
 
       <div class="stats">
         <div class="stat">
-          <span class="num">{{ n }}<span class="den">/{{ target }}</span></span>
+          <span class="num tnum">{{ n }}<span class="den">/{{ target }}</span></span>
           <span class="lbl">survived</span>
         </div>
         <div class="stat">
-          <span class="num">{{ drift.toFixed(0) }}<span class="den">/{{ budget }}</span></span>
+          <span class="num tnum">{{ drift.toFixed(0) }}<span class="den">/{{ budget }}</span></span>
           <span class="lbl">drift spent</span>
         </div>
         <div class="stat">
-          <span class="num">{{ level }}</span>
+          <span class="num tnum">{{ level }}</span>
           <span class="lbl">level<template v-if="advanced"> ▲</template><template v-else-if="demoted"> ▼</template></span>
         </div>
       </div>
@@ -144,7 +144,7 @@ const points = computed(() => {
       </div>
 
       <p v-if="status === 'blunder' && fatalLoss != null" class="cost">
-        That move cost <span class="loss">−{{ fatalLoss.toFixed(1) }}%</span> — find a better one.
+        That move cost <span class="loss tnum">−{{ fatalLoss.toFixed(1) }}%</span> — find a better one.
       </p>
 
       <template v-if="winHistory.length">
@@ -156,8 +156,8 @@ const points = computed(() => {
       </template>
 
       <div class="controls">
-        <button class="primary" @click="emit('next')">Next position →</button>
-        <button @click="emit('retry')">Retry this one</button>
+        <button class="nm-btn" @click="emit('next')">Next position →</button>
+        <button class="nm-btn ghost" @click="emit('retry')">Retry this one</button>
       </div>
     </div>
   </section>
@@ -165,145 +165,182 @@ const points = computed(() => {
 
 <style scoped>
 .run-summary {
-  margin-top: 0.85rem;
-  font-family: system-ui, -apple-system, sans-serif;
-  color: #1a1a1a;
+  margin-top: 1rem;
+  filter: drop-shadow(0 14px 26px rgba(0, 0, 0, 0.55));
 }
 .card {
-  width: 100%;
-  box-sizing: border-box;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 0.7rem;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
-  padding: 1rem 1.15rem 1.05rem;
+  position: relative;
+  --c: 16px;
+  clip-path: polygon(
+    0 0,
+    calc(100% - var(--c)) 0,
+    100% var(--c),
+    100% 100%,
+    var(--c) 100%,
+    0 calc(100% - var(--c))
+  );
+  background: linear-gradient(160deg, var(--surface-2), var(--surface) 58%, var(--bg-sunken));
+  padding: 1.1rem 1.3rem 1.2rem;
+}
+/* Neon gradient border that follows the notch (behind the body). */
+.card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  margin: -1.5px;
+  clip-path: inherit;
+  background: linear-gradient(135deg, var(--hairline), var(--text-dim));
+}
+.card.good::after {
+  background: linear-gradient(135deg, var(--good), var(--neon-cyan));
+}
+.card.bad::after {
+  background: linear-gradient(135deg, var(--neon-magenta), var(--bad));
+}
+.card > * {
+  position: relative;
 }
 .headline {
   margin: 0;
-  font-size: 1.4rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-family: var(--font-display);
+  font-size: 2.1rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1;
 }
-.headline.good { color: #166534; }
-.headline.bad { color: #b91c1c; }
-.headline.neutral { color: #4b5563; }
+.headline.good {
+  color: var(--good);
+  text-shadow: 0 0 18px rgba(43, 255, 136, 0.5);
+}
+.headline.bad {
+  color: var(--bad);
+  text-shadow: 0 0 18px rgba(255, 59, 92, 0.45);
+}
+.headline.neutral {
+  color: var(--text-muted);
+}
 .detail {
-  margin: 0.25rem 0 0;
-  color: #4b5563;
+  margin: 0.3rem 0 0;
+  color: var(--text-muted);
   font-size: 0.9rem;
+  line-height: 1.45;
 }
 .stats {
   display: flex;
-  gap: 1.4rem;
-  margin: 0.95rem 0 0.7rem;
+  gap: 1.5rem;
+  margin: 1rem 0 0.7rem;
 }
 .stat {
   display: flex;
   flex-direction: column;
-  gap: 0.12rem;
+  gap: 0.15rem;
 }
 .num {
-  font-size: 1.7rem;
-  font-weight: 700;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
+  font-family: var(--font-display);
+  font-size: 2rem;
+  line-height: 0.9;
+  letter-spacing: 0.02em;
+  color: var(--text);
 }
 .den {
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: #9ca3af;
+  font-size: 1.1rem;
+  color: var(--text-dim);
 }
 .lbl {
-  font-size: 0.72rem;
-  color: #888;
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.08em;
 }
 .track {
   display: flex;
   align-items: center;
   gap: 0.55rem;
-  margin: 0.1rem 0 0.35rem;
+  margin: 0.1rem 0 0.4rem;
 }
 .pips {
   display: inline-flex;
-  gap: 0.3rem;
+  gap: 0.32rem;
 }
 .pip {
-  width: 0.6rem;
-  height: 0.6rem;
+  width: 0.62rem;
+  height: 0.62rem;
   border-radius: 50%;
-  background: #e5e7eb;
-  box-shadow: inset 0 0 0 1px #d1d5db;
+  background: var(--bg-sunken);
+  border: 1px solid var(--hairline);
 }
-.pip.on { background: #16a34a; box-shadow: none; }
-.pip.on.strike { background: #dc2626; }
+.pip.on {
+  background: var(--good);
+  border-color: var(--good);
+  box-shadow: 0 0 8px rgba(43, 255, 136, 0.7);
+}
+.pip.on.strike {
+  background: var(--bad);
+  border-color: var(--bad);
+  box-shadow: 0 0 8px rgba(255, 59, 92, 0.7);
+}
 .track-cap {
-  font-size: 0.76rem;
-  color: #6b7280;
+  font-size: 0.74rem;
+  color: var(--text-muted);
 }
 .cost {
-  margin: 0.1rem 0 0;
-  font-size: 0.86rem;
-  color: #444;
+  margin: 0.2rem 0 0;
+  font-size: 0.88rem;
+  color: var(--text-muted);
 }
 .cost .loss {
-  color: #dc2626;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
+  color: var(--bad);
+  font-weight: 700;
 }
 .spark {
   width: 100%;
   height: 2.6rem;
   display: block;
-  background: #f8fafc;
+  background: var(--bg-sunken);
+  border: 1px solid var(--hairline);
   border-radius: 0.4rem;
-  margin-top: 0.5rem;
+  margin-top: 0.6rem;
 }
 .mid {
-  stroke: #d1d5db;
+  stroke: var(--hairline);
   stroke-width: 1;
   stroke-dasharray: 3 3;
   vector-effect: non-scaling-stroke;
 }
 .line {
   fill: none;
-  stroke-width: 2;
+  stroke-width: 2.5;
   stroke-linejoin: round;
   stroke-linecap: round;
   vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 4px currentColor);
 }
-.line.good { stroke: #16a34a; }
-.line.bad { stroke: #dc2626; }
-.line.neutral { stroke: #9ca3af; }
+.line.good {
+  stroke: var(--good);
+}
+.line.bad {
+  stroke: var(--bad);
+}
+.line.neutral {
+  stroke: var(--text-muted);
+}
 .spark-cap {
   margin: 0.3rem 0 0;
   text-align: center;
-  font-size: 0.72rem;
-  color: #9ca3af;
+  font-size: 0.7rem;
+  color: var(--text-dim);
 }
 .controls {
   display: flex;
   flex-wrap: wrap;
   gap: 0.6rem;
-  margin-top: 0.95rem;
+  margin-top: 1rem;
 }
-.controls button {
+.controls .nm-btn {
   flex: 1;
+  font-size: 1rem;
   padding: 0.55rem 0.9rem;
-  font: inherit;
-  font-size: 0.9rem;
-  font-weight: 600;
-  border: 1px solid #ccc;
-  border-radius: 0.4rem;
-  background: #fff;
-  cursor: pointer;
 }
-.controls button:hover { border-color: #888; }
-.controls button.primary {
-  background: #1a1a1a;
-  color: #fff;
-  border-color: #1a1a1a;
-}
-.controls button.primary:hover { background: #000; }
 </style>

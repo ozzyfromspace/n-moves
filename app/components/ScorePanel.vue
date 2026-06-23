@@ -2,7 +2,8 @@
 // Live run readout: positional win%, the drift gauge (cumulative win% lost vs budget),
 // moves survived toward this run's level, and a single contextual progress track —
 // green pips toward the next level on a win streak, red strikes toward a demotion when
-// you're busting. Pure presentation; every number is a prop from ChessTrainer.
+// you're busting. Plain-language InfoTips explain each term. Pure presentation; every
+// number is a prop from ChessTrainer.
 import type { RunStatus } from '~/lib/scoring'
 
 const props = defineProps<{
@@ -57,17 +58,22 @@ const statusLabel: Record<RunStatus, string> = {
   active: '',
   blunder: 'Blunder — run over',
   budget: 'Drift spent — run over',
-  'max-n': 'Clean run! 🎉',
+  'max-n': 'Clean run!',
   terminal: 'Game ended',
 }
 </script>
 
 <template>
-  <section class="score">
+  <section class="score nm-panel">
     <div class="metric">
       <div class="metric-head">
-        <span class="label">Your chances</span>
-        <span class="value">{{ winPct.toFixed(0) }}%</span>
+        <span class="label">Your chances
+          <InfoTip
+            label="Your chances"
+            text="Your win odds from this exact position, per the engine. 50% is dead even."
+          />
+        </span>
+        <span class="value tnum">{{ winPct.toFixed(0) }}%</span>
       </div>
       <div class="bar">
         <div :class="['fill', winTone]" :style="{ width: winPct + '%' }" />
@@ -76,10 +82,13 @@ const statusLabel: Record<RunStatus, string> = {
 
     <div class="metric">
       <div class="metric-head">
-        <span class="label">Drift</span>
-        <span class="value">
-          {{ drift.toFixed(0) }}<span class="muted"> / {{ budget }}</span>
+        <span class="label">Drift
+          <InfoTip
+            label="Drift"
+            text="Total win% you've bled vs the engine's best this run — your mistake budget. Fill the bar and the run ends."
+          />
         </span>
+        <span class="value tnum">{{ drift.toFixed(0) }}<span class="muted"> / {{ budget }}</span></span>
       </div>
       <div class="bar">
         <div :class="['fill', driftTone]" :style="{ width: driftPct + '%' }" />
@@ -88,12 +97,22 @@ const statusLabel: Record<RunStatus, string> = {
 
     <div class="counters">
       <div class="counter">
-        <span class="big">{{ n }}<span class="den"> / {{ target }}</span></span>
-        <span class="label">moves survived</span>
+        <span class="big tnum">{{ n }}<span class="den"> / {{ target }}</span></span>
+        <span class="label">moves survived
+          <InfoTip
+            label="Moves survived"
+            text="Strong moves you've made in a row this run, out of this level's target."
+          />
+        </span>
       </div>
       <div class="counter">
-        <span class="big">{{ level }}</span>
-        <span class="label">level</span>
+        <span class="big tnum cyan">{{ level }}</span>
+        <span class="label">level
+          <InfoTip
+            label="Level"
+            text="How many strong moves in a row you must string together. Stay consistent to climb."
+          />
+        </span>
       </div>
     </div>
 
@@ -112,111 +131,144 @@ const statusLabel: Record<RunStatus, string> = {
 
 <style scoped>
 .score {
-  font-family: system-ui, -apple-system, sans-serif;
-  color: #1a1a1a;
+  padding: 1.1rem 1.2rem 1.2rem;
   display: flex;
   flex-direction: column;
-  gap: 1.1rem;
+  gap: 1.05rem;
 }
 .metric-head {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  margin-bottom: 0.35rem;
+  margin-bottom: 0.4rem;
 }
 .label {
-  font-size: 0.78rem;
-  color: #888;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
 }
 .value {
-  font-size: 1.05rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  letter-spacing: 0.02em;
+  color: var(--text);
 }
 .muted {
-  color: #aaa;
-  font-weight: 400;
+  color: var(--text-dim);
 }
 .bar {
   height: 0.7rem;
-  background: #ececec;
+  background: var(--bg-sunken);
   border-radius: 0.4rem;
+  border: 1px solid var(--hairline);
   overflow: hidden;
 }
 .fill {
   height: 100%;
   border-radius: 0.4rem;
-  transition: width 0.35s ease, background-color 0.35s ease;
+  transition: width 0.4s ease, background-color 0.35s ease, box-shadow 0.35s ease;
 }
-.fill.good { background: #16a34a; }
-.fill.even { background: #9ca3af; }
-.fill.warn { background: #f59e0b; }
-.fill.bad { background: #dc2626; }
+.fill.good {
+  background: linear-gradient(90deg, var(--good), var(--neon-cyan));
+  box-shadow: 0 0 12px rgba(43, 255, 136, 0.5);
+}
+.fill.even {
+  background: linear-gradient(90deg, #5e6a88, #9aa6c4);
+}
+.fill.warn {
+  background: linear-gradient(90deg, var(--warn), #ff8a3b);
+  box-shadow: 0 0 12px rgba(255, 200, 59, 0.45);
+}
+.fill.bad {
+  background: linear-gradient(90deg, var(--neon-magenta), var(--bad));
+  box-shadow: 0 0 14px rgba(255, 59, 92, 0.55);
+}
 .counters {
   display: flex;
-  gap: 1.5rem;
-  margin-top: 0.25rem;
+  gap: 1.6rem;
+  margin-top: 0.1rem;
 }
 .counter {
   display: flex;
   flex-direction: column;
-  gap: 0.1rem;
+  gap: 0.2rem;
 }
 .big {
-  font-size: 2rem;
-  font-weight: 700;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
+  font-family: var(--font-display);
+  font-size: 2.5rem;
+  line-height: 0.9;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+.big.cyan {
+  color: var(--neon-cyan);
+  text-shadow: 0 0 16px rgba(33, 243, 255, 0.5);
 }
 .den {
-  font-size: 1rem;
-  font-weight: 600;
-  color: #9ca3af;
+  font-size: 1.2rem;
+  color: var(--text-dim);
 }
 .track {
   display: flex;
   align-items: center;
   gap: 0.55rem;
-  margin-top: -0.4rem;
+  margin-top: -0.2rem;
 }
 .pips {
   display: inline-flex;
-  gap: 0.3rem;
+  gap: 0.32rem;
 }
 .pip {
-  width: 0.6rem;
-  height: 0.6rem;
+  width: 0.62rem;
+  height: 0.62rem;
   border-radius: 50%;
-  background: #e5e7eb;
-  box-shadow: inset 0 0 0 1px #d1d5db;
+  background: var(--bg-sunken);
+  border: 1px solid var(--hairline);
 }
-.pip.on { background: #16a34a; box-shadow: none; }
-.pip.on.strike { background: #dc2626; }
+.pip.on {
+  background: var(--good);
+  border-color: var(--good);
+  box-shadow: 0 0 8px rgba(43, 255, 136, 0.7);
+}
+.pip.on.strike {
+  background: var(--bad);
+  border-color: var(--bad);
+  box-shadow: 0 0 8px rgba(255, 59, 92, 0.7);
+}
 .track-cap {
-  font-size: 0.74rem;
-  color: #9ca3af;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
 }
 .badge {
   margin: 0;
   padding: 0.5rem 0.7rem;
   border-radius: 0.4rem;
-  font-size: 0.9rem;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  letter-spacing: 0.05em;
   text-align: center;
+  border: 1px solid transparent;
 }
 .badge.blunder,
 .badge.budget {
-  background: #fee2e2;
-  color: #991b1b;
+  background: rgba(255, 59, 92, 0.12);
+  border-color: rgba(255, 59, 92, 0.4);
+  color: var(--bad);
 }
 .badge.max-n {
-  background: #dcfce7;
-  color: #166534;
+  background: rgba(43, 255, 136, 0.12);
+  border-color: rgba(43, 255, 136, 0.4);
+  color: var(--good);
 }
 .badge.terminal {
-  background: #e5e7eb;
-  color: #374151;
+  background: var(--surface-2);
+  border-color: var(--hairline);
+  color: var(--text-muted);
 }
 </style>

@@ -1,11 +1,10 @@
 <script setup lang="ts">
-// Sidebar history: the persisted all-time best (the standing goal) and the most
-// recent runs, read straight from the shared useHistory store (IndexedDB-backed).
-// Pure presentation — ChessTrainer appends runs and calls load(); this just shows
-// what's there, and quietly shows nothing extra before the first run is recorded.
+// Sidebar history: the most recent runs, read straight from the shared useHistory
+// store (IndexedDB-backed). Pure presentation — ChessTrainer appends runs and calls
+// load(); this just shows what's there, and quietly shows nothing extra before the
+// first run is recorded.
 import { RUN_STATUS_SHORT, isHeld, type RunRecord } from '~/lib/history'
 
-// all-time best lives in ScorePanel (the live scoreboard); this panel is the log.
 const { recentRuns, error } = useHistory()
 
 /** Epoch ms → a terse "3m" / "2h" / "1d" age. */
@@ -31,10 +30,10 @@ function label(run: RunRecord): string {
     <ul v-if="recentRuns.length" class="runs">
       <li v-for="(run, i) in recentRuns" :key="run.id ?? i" class="run">
         <span class="dot" :class="isHeld(run.status) ? 'good' : 'bad'" />
-        <span class="n">{{ run.n }}</span>
+        <span class="n tnum">{{ run.n }}</span>
         <span class="status">{{ label(run) }}</span>
-        <span class="drift">−{{ run.drift.toFixed(0) }}</span>
-        <span class="when">{{ ago(run.at) }}</span>
+        <span class="drift tnum">−{{ run.drift.toFixed(0) }}</span>
+        <span class="when tnum">{{ ago(run.at) }}</span>
       </li>
     </ul>
     <p v-else-if="error" class="empty">{{ error }}</p>
@@ -44,18 +43,22 @@ function label(run: RunRecord): string {
 
 <style scoped>
 .history {
-  font-family: system-ui, -apple-system, sans-serif;
-  color: #1a1a1a;
+  border-radius: 12px;
+  background: linear-gradient(160deg, var(--surface-2), var(--surface) 60%, var(--bg-sunken));
+  border: 1px solid var(--hairline);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 10px 30px -14px rgba(0, 0, 0, 0.7);
+  padding: 0.9rem 1rem;
   display: flex;
   flex-direction: column;
-  gap: 0.7rem;
+  gap: 0.55rem;
 }
 .caption {
   margin: 0;
-  font-size: 0.74rem;
-  color: #888;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  color: var(--text-muted);
 }
 .runs {
   list-style: none;
@@ -63,16 +66,16 @@ function label(run: RunRecord): string {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 0.1rem;
 }
 .run {
   display: grid;
   grid-template-columns: 0.6rem 1.8rem 1fr auto auto;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.28rem 0.1rem;
+  padding: 0.32rem 0.1rem;
   font-size: 0.82rem;
-  border-top: 1px solid #f1f1f1;
+  border-top: 1px solid var(--hairline);
 }
 .run:first-child {
   border-top: 0;
@@ -83,31 +86,32 @@ function label(run: RunRecord): string {
   border-radius: 50%;
 }
 .dot.good {
-  background: #16a34a;
+  background: var(--good);
+  box-shadow: 0 0 6px rgba(43, 255, 136, 0.7);
 }
 .dot.bad {
-  background: #dc2626;
+  background: var(--bad);
+  box-shadow: 0 0 6px rgba(255, 59, 92, 0.7);
 }
 .n {
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  color: var(--text);
 }
 .status {
-  color: #6b7280;
+  color: var(--text-muted);
 }
 .drift {
-  color: #9ca3af;
-  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
 }
 .when {
-  color: #c0c4cc;
-  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
   min-width: 1.8rem;
   text-align: right;
 }
 .empty {
   margin: 0;
   font-size: 0.8rem;
-  color: #9ca3af;
+  color: var(--text-muted);
 }
 </style>

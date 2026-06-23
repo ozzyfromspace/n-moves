@@ -11,7 +11,6 @@ import type { Color, Dests, Key, MoveMetadata } from 'chessground/types'
 import type { DrawShape } from 'chessground/draw'
 
 import 'chessground/assets/chessground.base.css'
-import 'chessground/assets/chessground.brown.css'
 import 'chessground/assets/chessground.cburnett.css'
 
 const props = withDefaults(
@@ -143,5 +142,46 @@ watch(
 .board {
   width: var(--board-size, min(80vmin, 480px));
   height: var(--board-size, min(80vmin, 480px));
+}
+
+/* Custom neon-cool board (replaces the wood theme): calm, readable squares so both
+   piece colours stay legible, with neon action highlights. The frame carries the glow. */
+.board :deep(cg-board) {
+  background-color: #d8e0f2;
+  background-image: conic-gradient(
+    #46588a 90deg,
+    transparent 90deg 180deg,
+    #46588a 180deg 270deg,
+    transparent 270deg
+  );
+  background-size: 25% 25%;
+}
+.board :deep(coords coord) {
+  color: #eaf0ff;
+  font-weight: 700;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
+}
+.board :deep(square.last-move) {
+  background: rgba(33, 243, 255, 0.26);
+  box-shadow: inset 0 0 0 2px rgba(33, 243, 255, 0.55);
+}
+.board :deep(square.selected) {
+  background: rgba(33, 243, 255, 0.42);
+}
+.board :deep(square.move-dest) {
+  background: radial-gradient(rgba(33, 243, 255, 0.55) 21%, transparent 22%);
+}
+.board :deep(square.oc.move-dest) {
+  background: radial-gradient(transparent 0%, transparent 58%, rgba(255, 43, 214, 0.6) 60%);
+}
+.board :deep(square.check) {
+  background: radial-gradient(
+    rgba(255, 59, 92, 0.95) 0%,
+    rgba(255, 59, 92, 0.55) 28%,
+    transparent 65%
+  );
+}
+.board :deep(square.premove-dest) {
+  background: radial-gradient(rgba(255, 43, 214, 0.4) 21%, transparent 22%);
 }
 </style>
