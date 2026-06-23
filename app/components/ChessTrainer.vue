@@ -58,6 +58,20 @@ const explorer = reactive(
   }),
 )
 
+// The continuation explorer ("play it on") — opened from a win or a drift-bust summary to
+// test whether you'd hold the position going forward. Same one-engine borrowing as above;
+// runs on its own board. It's a live test, so it shows no hints (no candidate arrows).
+const continuation = reactive(
+  useContinuation({
+    searchBest: scoring.searchBest,
+    score: scoring.scoreIsolated,
+    stop: scoring.stop,
+  }),
+)
+
+// Either post-mortem owns the board: the run summary, status line and scrubber step aside.
+const exploring = computed(() => explorer.active || continuation.active)
+
 const phase = ref<Phase>('booting')
 const humanColor = ref<Color>('white')
 // The start currently in play — held so "Retry" reloads the exact same position.
@@ -132,6 +146,19 @@ const view = computed(() => {
       viewOnly: !playerTurn,
     }
   }
+  // Playing it on: the board IS the continuation — input on your turn, watched otherwise.
+  if (continuation.active) {
+    const playerTurn = continuation.phase === 'player'
+    return {
+      fen: continuation.fen,
+      turnColor: continuation.turnColor,
+      dests: (playerTurn ? continuation.dests : undefined) as Dests | undefined,
+      movableColor: (playerTurn ? humanColor.value : undefined) as Color | undefined,
+      lastMove: continuation.lastMove,
+      check: continuation.check,
+      viewOnly: !playerTurn,
+    }
+  }
   if (viewPly.value === null) {
     return {
       fen: fen.value,
@@ -171,6 +198,8 @@ const boardShapes = computed<DrawShape[]>(() => {
       })
       .filter((s): s is DrawShape => s !== null)
   }
+  // The continuation is a live test — never annotate the board (no-hints).
+  if (continuation.active) return []
   return phase.value === 'over' && viewPly.value === null && refutation.value
     ? [refutation.value.shape]
     : []
@@ -357,6 +386,11 @@ async function onMove(payload: { orig: Key; dest: Key }): Promise<void> {
     if (explorer.phase === 'player') void explorer.play(payload.orig + payload.dest)
     return
   }
+  // Playing it on: every drag is your continuation move (its board, not the finished run).
+  if (continuation.active) {
+    if (continuation.phase === 'player') void continuation.play(payload.orig + payload.dest)
+    return
+  }
   // Only the live tip on the player's turn accepts input (the past is view-only), but
   // guard anyway so a scrubbed view can never inject a move into the live game.
   if (phase.value !== 'player' || viewPly.value !== null) return
@@ -492,6 +526,22 @@ function startExplorer(): void {
 }
 
 /**
+ * Open the continuation explorer from a win/bust summary. Enters at fen.value — the run's
+ * final position (the engine is to move, since a run ends on your move before the reply) —
+ * and tests whether you'd hold it, scored against the same drift/blunder thresholds as the
+ * run, scaled to the explorer depth. No hints: it never annotates the board.
+ */
+function startContinuation(): void {
+  if (status.value !== 'max-n' && status.value !== 'budget') return
+  void continuation.enter(fen.value, {
+    humanColor: humanColor.value,
+    steps: settings.explorerSteps,
+    driftPerMove: settings.driftPerMove,
+    blunderCap: settings.blunderCap,
+  })
+}
+
+/**
  * Resume a persisted run exactly: rebuild the board by replaying every recorded ply,
  * re-seat the scoring state machine + engine config, and restore the win% history and
  * view. Deliberately does NOT touch history or the ladder — an 'over' snapshot was
@@ -537,7 +587,7 @@ function restoreRun(s: ActiveRun): void {
 function onKey(e: KeyboardEvent): void {
   if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
   if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return
-  if (explorer.active) return // exploring owns the board; the run scrubber is hidden
+  if (exploring.value) return // a post-mortem owns the board; the run scrubber is hidden
   if (tip.value === 0) return // nothing to scrub
   const el = document.activeElement as HTMLElement | null
   if (
@@ -607,7 +657,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <p v-if="!explorer.active" :class="['status', phase]">
+        <p v-if="!exploring" :class="['status', phase]">
           <span v-if="searching" class="spinner" />
           {{ statusText }}
         </p>
@@ -616,7 +666,7 @@ onBeforeUnmount(() => {
              Mounted during play and on the run-over screen alike — but hidden while the
              explorer owns the board (its own controls take over). -->
         <RunControls
-          v-if="!explorer.active"
+          v-if="!exploring"
           :ply="viewIndex"
           :total-plies="tip"
           :at-live="atLive"
@@ -633,7 +683,7 @@ onBeforeUnmount(() => {
              on every ending (win, blunder, drift, terminal). Swapped out for the explorer
              panel once you drop into the interactive post-mortem. -->
         <RunSummary
-          v-if="phase === 'over' && !explorer.active"
+          v-if="phase === 'over' && !exploring"
           :status="status"
           :n="n"
           :target="playedTarget"
@@ -652,7 +702,9 @@ onBeforeUnmount(() => {
           :refutation="refutation?.line ?? null"
           :refutation-pending="refutationPending"
           :can-explore="status === 'blunder' && settings.explainBlunders"
+          :can-continue="status === 'max-n' || status === 'budget'"
           @explore="startExplorer"
+          @continue="startContinuation"
         />
 
         <!-- The interactive refutation explorer — replaces the summary while open. -->
@@ -668,6 +720,20 @@ onBeforeUnmount(() => {
           @pick="explorer.play"
           @restart="explorer.restart"
           @done="explorer.exit"
+        />
+
+        <!-- The continuation explorer ("play it on") — replaces the summary while open. -->
+        <ContinuationPanel
+          v-if="continuation.active"
+          :phase="continuation.phase"
+          :outcome="continuation.outcome"
+          :drift="continuation.drift"
+          :budget="continuation.budget"
+          :player-moves="continuation.playerMoves"
+          :max-player-moves="continuation.maxPlayerMoves"
+          :thinking="continuation.thinking"
+          @restart="continuation.restart"
+          @done="continuation.exit"
         />
       </div>
 

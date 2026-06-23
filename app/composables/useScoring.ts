@@ -148,6 +148,29 @@ export function useScoring() {
     return engine.analyzeMulti(fen, { nodes: nodes.value, multipv: count })
   }
 
+  /**
+   * Score a played move exactly like `scoreMove` — win% lost vs best, plus the opponent's
+   * reply — but WITHOUT the prefetch/live-eval coupling or run-state mutation. Used by the
+   * continuation explorer, which keeps its own drift state and must not disturb the
+   * finished run's eval. Same two-search protocol: one best search, and a `searchmoves`
+   * search only when the player deviated.
+   */
+  async function scoreIsolated(
+    fen: string,
+    playedUci: string,
+  ): Promise<{ loss: number; reply: string | null }> {
+    const bestAnalysis = await engine.analyze(fen, { nodes: nodes.value })
+    const best = toEval(bestAnalysis)
+    if (playedUci === bestAnalysis.bestmove) {
+      return { loss: 0, reply: bestAnalysis.pv[1] ?? bestAnalysis.ponder ?? null }
+    }
+    const playedAnalysis = await engine.analyze(fen, { nodes: nodes.value, searchmoves: [playedUci] })
+    return {
+      loss: moveLoss(best, toEval(playedAnalysis)),
+      reply: playedAnalysis.pv[1] ?? playedAnalysis.ponder ?? null,
+    }
+  }
+
   /** Fold a scored move's loss into the run; returns the new run state. */
   function recordMove(loss: number): RunState {
     run.value = applyMove(run.value, loss, config)
@@ -222,6 +245,7 @@ export function useScoring() {
     scoreMove,
     searchBest,
     analyzeLines,
+    scoreIsolated,
     recordMove,
     recordTerminal,
   }
