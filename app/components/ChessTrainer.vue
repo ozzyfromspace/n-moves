@@ -627,8 +627,8 @@ function startContinuation(): void {
  * already counted when it first ended (pre-refresh), and a 'player' snapshot is still
  * in progress; restore must never double-count either.
  */
-function restoreRun(s: ActiveRun): void {
-  runId++ // invalidate anything in flight (paranoia; nothing runs before mount)
+async function restoreRun(s: ActiveRun): Promise<void> {
+  const myRun = ++runId // invalidate anything in flight (paranoia; nothing runs before mount)
   currentPosition.value = s.position
   humanColor.value = s.humanColor
   playedTarget.value = s.playedTarget
@@ -655,9 +655,19 @@ function restoreRun(s: ActiveRun): void {
     phase.value = 'over'
     // Re-derive the refutation on a restored blunder (it isn't persisted): the rebuilt
     // board IS the position the blunder led to — a fatal move ends before the reply.
-    if (s.run.status === 'blunder') void revealRefutation(fen.value, runId)
+    if (s.run.status === 'blunder') void revealRefutation(fen.value, myRun)
     return
   }
+  // Unlock for input on a SEPARATE tick (we mount in the locked 'booting' phase, so the
+  // board is still locked here). A black-to-move resume flips the board orientation, and
+  // chessground only (re)binds pointer listeners when the board isn't viewOnly at flip
+  // time (events.bindBoard bails on viewOnly; set({orientation}) rebuilds the board). The
+  // flip therefore has to land while still locked, then we unlock the next tick — exactly
+  // like startRun's await before 'player'. Flipping and unlocking in one tick rebuilds the
+  // board with no listeners and leaves it inert though it's your move (the resume-path form
+  // of the viewOnly-init trap).
+  await nextTick()
+  if (myRun !== runId) return
   phase.value = 'player'
   scoring.prefetch(fen.value).catch(() => {}) // re-prime the search for the resumed position
 }
@@ -695,7 +705,7 @@ onMounted(async () => {
     await positions.load() // nextPosition surfaces a load failure as a run error
     // Resume a run interrupted by a refresh; otherwise deal a fresh start.
     const saved = await activeRun.loadSaved()
-    if (saved) restoreRun(saved)
+    if (saved) await restoreRun(saved)
     else await nextPosition()
   } catch (e) {
     runError.value = (e as Error).message
