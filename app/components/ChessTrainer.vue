@@ -48,9 +48,14 @@ const currentPosition = ref<PositionRecord | null>(null)
 // The survival target this run is played at (the ladder level at run start).
 const playedTarget = ref(level.value)
 // True once the current position has been won and banked. Persisted, preserved across
-// "Restart", cleared by "Next" — while set, replays change neither the ladder nor
-// history, so experimenting on a position you've already cleared can't demote you.
+// "Restart", cleared by "Next" or the settings "Drop banked" button — while set, a
+// replay of this position counts toward neither the ladder nor history, so
+// experimenting on a position you've already cleared can't demote you.
 const positionBanked = ref(false)
+// Whether THIS run *started* on an already-banked position — captured at run start so a
+// later Drop can't relabel a finished run. Drives the "Banked ✓" summary and the
+// no-count decision (a banked replay is free practice; a first win still counts).
+const bankedAtStart = ref(false)
 const runError = ref<string | null>(null)
 
 // Win%-pts a run-ending blunder cost — the only number the run-over screen shows about
@@ -154,6 +159,7 @@ function snapshot(savePhase: 'player' | 'over'): ActiveRun | null {
     fatalLoss: fatalLoss.value,
     playedTarget: playedTarget.value,
     banked: positionBanked.value,
+    bankedAtStart: bankedAtStart.value,
     nodes: nodes.value,
     config: { budget: config.budget, blunderCap: config.blunderCap, maxN: config.maxN },
     currentEval: live ? { ...live } : null,
@@ -177,9 +183,10 @@ function endRun(): void {
   // re-searches, recovering from the transient failure. Both update synchronously, so
   // the run-over screen already reflects the new ladder level / streak.
   if (currentPosition.value && status.value !== 'active') {
-    // A banked position is locked: you've already won it, so replays (Restart) change
-    // neither the ladder nor history until you move on — experimenting can't demote you.
-    if (!positionBanked.value) {
+    // A run that STARTED banked is a replay of a position you've already won: it counts
+    // toward neither the ladder nor history, so experimenting can't demote you. A first
+    // win (started un-banked) still counts and then banks the position for next time.
+    if (!bankedAtStart.value) {
       recordRun({
         n: n.value,
         drift: drift.value,
@@ -193,7 +200,7 @@ function endRun(): void {
       recordLadder(status.value, settings.winsToAdvance, settings.lossesToDemote) // win/bust streaks → climb/drop
       if (status.value === 'max-n') positionBanked.value = true // a win banks this position
     }
-    persist('over') // resume the summary on refresh (locked replays too); never re-records
+    persist('over') // resume the summary on refresh (banked replays too); never re-records
   }
   phase.value = 'over'
 }
@@ -216,6 +223,9 @@ function applySettings(): void {
 async function startRun(fen0: string): Promise<void> {
   const myRun = ++runId
   applySettings()
+  // Is this a replay of an already-banked position? Captured now (Next cleared the flag
+  // for a fresh deal; Restart preserved it) so a mid-run Drop can't relabel this run.
+  bankedAtStart.value = positionBanked.value
   runError.value = null
   fatalLoss.value = null
   winHistory.value = []
@@ -342,6 +352,21 @@ async function retryPosition(): Promise<void> {
 }
 
 /**
+ * Drop the current position's banked status (from the settings panel), so the next
+ * attempt on it counts toward the ladder again. The in-progress/finished run keeps its
+ * label (bankedAtStart was fixed at run start); only a subsequent Restart is re-armed.
+ * Persists the cleared flag at a resting point so the drop survives a refresh.
+ */
+function dropBanked(): void {
+  if (!positionBanked.value) return
+  positionBanked.value = false
+  if (!currentPosition.value) return
+  if (status.value !== 'active') persist('over')
+  else if (phase.value === 'player') persist('player')
+  // mid-search: the next stable save (completed ply / run end) persists the cleared flag
+}
+
+/**
  * Resume a persisted run exactly: rebuild the board by replaying every recorded ply,
  * re-seat the scoring state machine + engine config, and restore the win% history and
  * view. Deliberately does NOT touch history or the ladder — an 'over' snapshot was
@@ -354,6 +379,7 @@ function restoreRun(s: ActiveRun): void {
   humanColor.value = s.humanColor
   playedTarget.value = s.playedTarget
   positionBanked.value = s.banked
+  bankedAtStart.value = s.bankedAtStart
   winHistory.value = [...s.winHistory]
   fatalLoss.value = s.fatalLoss
   runError.value = s.runError
@@ -487,7 +513,7 @@ onBeforeUnmount(() => {
           :win-history="winHistory"
           :fatal-loss="fatalLoss"
           :run-error="runError"
-          :locked="positionBanked"
+          :locked="bankedAtStart"
         />
       </div>
 
@@ -505,7 +531,7 @@ onBeforeUnmount(() => {
           :losses-to-demote="settings.lossesToDemote"
           :status="status"
         />
-        <SettingsPanel />
+        <SettingsPanel :banked="positionBanked" @drop-banked="dropBanked" />
         <HistoryPanel />
       </aside>
     </div>
