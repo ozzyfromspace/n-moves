@@ -7,8 +7,10 @@
 // real training screen; board-test and engine-test were throwaway harnesses.
 import { parseUciMove } from '~/lib/uci'
 import { evalToWinProb } from '~/lib/winprob'
+import { buildTimeline } from '~/lib/timeline'
+import { ACTIVE_RUN_VERSION, type ActiveRun } from '~/lib/activeRun'
 import type { Move } from 'chess.js'
-import type { Color, Key } from 'chessground/types'
+import type { Color, Dests, Key } from 'chessground/types'
 import type { PositionRecord } from '~/lib/positions'
 
 type Phase = 'booting' | 'player' | 'scoring' | 'opponent' | 'over'
@@ -37,6 +39,7 @@ const { usingSample: onSampleSet, count: positionCount } = positions
 const { settings } = useSettings()
 const { record: recordRun, load: loadHistory } = useHistory()
 const { level, streak, busts, record: recordLadder } = useLadder()
+const activeRun = useActiveRun()
 
 const phase = ref<Phase>('booting')
 const humanColor = ref<Color>('white')
@@ -51,6 +54,12 @@ const runError = ref<string | null>(null)
 const fatalLoss = ref<number | null>(null)
 // Player-perspective win% at each ply faced — the RunSummary sparkline series.
 const winHistory = ref<number[]>([])
+// Every ply played this run (human + engine, interleaved), long-algebraic UCI. The
+// single backbone: it rebuilds the board on a refresh-resume and feeds the scrubber.
+const moves = ref<string[]>([])
+// Which past frame the scrubber shows: null = the live tip; a number = that frame
+// index (0 = the start). The live game (useChessGame) is never touched — only the view.
+const viewPly = ref<number | null>(null)
 
 // Invalidates in-flight async continuations when the position changes underfoot
 // (e.g. the user hits "Next position" mid-search or mid-reply).
@@ -63,6 +72,49 @@ const movableColor = computed<Color | undefined>(() =>
     : undefined,
 )
 const locked = computed(() => phase.value !== 'player')
+
+// The scrubber timeline: one board snapshot per ply, rebuilt from the start + moves.
+const tip = computed(() => moves.value.length) // the live frame index
+const timeline = computed(() =>
+  currentPosition.value ? buildTimeline(currentPosition.value.fen, moves.value) : [],
+)
+const atLive = computed(() => viewPly.value === null)
+const viewIndex = computed(() => viewPly.value ?? tip.value)
+
+// What BoardPanel renders. At the live tip it's the real game (legal dests, input when
+// it's your move); scrubbed into the past it's a read-only timeline snapshot — no dests,
+// no input — so you can look back without disturbing play. Orientation stays the
+// player's side throughout (handled separately, never flips on a scrub).
+const view = computed(() => {
+  if (viewPly.value === null) {
+    return {
+      fen: fen.value,
+      turnColor: turnColor.value,
+      dests: dests.value as Dests | undefined,
+      movableColor: movableColor.value,
+      lastMove: lastMove.value,
+      check: check.value,
+      viewOnly: locked.value,
+    }
+  }
+  const frame = timeline.value[viewPly.value] ?? timeline.value[timeline.value.length - 1]
+  return {
+    fen: frame?.fen ?? fen.value,
+    turnColor: (frame?.turnColor ?? turnColor.value) as Color,
+    dests: undefined as Dests | undefined,
+    movableColor: undefined as Color | undefined,
+    lastMove: frame?.lastMove as [Key, Key] | undefined,
+    check: frame?.check ?? false,
+    viewOnly: true,
+  }
+})
+
+/** Step the scrubber by `delta` plies, clamping; stepping onto the tip returns to live. */
+function scrubBy(delta: number): void {
+  if (tip.value === 0) return // nothing to scrub yet
+  const next = Math.max(0, Math.min(tip.value, viewIndex.value + delta))
+  viewPly.value = next >= tip.value ? null : next
+}
 
 const statusText = computed(() => {
   switch (phase.value) {
@@ -84,12 +136,41 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
+/** Build the persistable snapshot of the current run, or null when no run is loaded. */
+function snapshot(savePhase: 'player' | 'over'): ActiveRun | null {
+  if (!currentPosition.value) return null
+  const live = scoring.currentEval.value
+  return {
+    version: ACTIVE_RUN_VERSION,
+    position: { ...currentPosition.value },
+    humanColor: humanColor.value,
+    moves: [...moves.value],
+    run: { n: n.value, drift: drift.value, status: status.value },
+    winHistory: [...winHistory.value],
+    fatalLoss: fatalLoss.value,
+    playedTarget: playedTarget.value,
+    nodes: nodes.value,
+    config: { budget: config.budget, blunderCap: config.blunderCap, maxN: config.maxN },
+    currentEval: live ? { ...live } : null,
+    phase: savePhase,
+    runError: runError.value,
+  }
+}
+
+/** Persist the run at a stable point: run start, a completed ply, or a rule ending. */
+function persist(savePhase: 'player' | 'over'): void {
+  const snap = snapshot(savePhase)
+  if (snap) void activeRun.save(snap)
+}
+
 function endRun(): void {
   // Fold a genuine rule-based ending (terminal / budget / blunder / max-n) into the
-  // persisted history and the ladder. The backstop error path is skipped — there the
-  // run is still 'active' and only an engine failure stopped it, so it neither logs
-  // a run nor moves the ladder. Both update synchronously, so the run-over screen
-  // already reflects the new ladder level / streak.
+  // persisted history and the ladder, and snapshot it as 'over' so a refresh restores
+  // the result. The backstop error path is skipped — there the run is still 'active'
+  // and only an engine failure stopped it, so it neither logs a run nor moves the
+  // ladder nor persists; a refresh then resumes the last clean 'player' snapshot and
+  // re-searches, recovering from the transient failure. Both update synchronously, so
+  // the run-over screen already reflects the new ladder level / streak.
   if (currentPosition.value && status.value !== 'active') {
     recordRun({
       n: n.value,
@@ -102,6 +183,7 @@ function endRun(): void {
       maxN: config.maxN,
     })
     recordLadder(status.value, settings.winsToAdvance, settings.lossesToDemote) // win/bust streaks → climb/drop
+    persist('over') // resume the summary on refresh; never re-records (restore skips endRun)
   }
   phase.value = 'over'
 }
@@ -127,6 +209,8 @@ async function startRun(fen0: string): Promise<void> {
   runError.value = null
   fatalLoss.value = null
   winHistory.value = []
+  moves.value = []
+  viewPly.value = null // a fresh run starts at the live tip, never mid-scrub
   load(fen0)
   humanColor.value = turnColor.value // the side to move is the human
   phase.value = 'scoring' // brief: reset clears the TT, then we prefetch
@@ -134,6 +218,7 @@ async function startRun(fen0: string): Promise<void> {
     await scoring.reset()
     if (myRun !== runId) return
     phase.value = 'player'
+    persist('player') // snapshot the fresh run so even a 0-move refresh resumes it
     scoring.prefetch(fen.value).catch(() => {}) // hide the search behind think time
   } catch (e) {
     if (myRun !== runId) return
@@ -143,13 +228,16 @@ async function startRun(fen0: string): Promise<void> {
 }
 
 async function onMove(payload: { orig: Key; dest: Key }): Promise<void> {
-  if (phase.value !== 'player') return
+  // Only the live tip on the player's turn accepts input (the past is view-only), but
+  // guard anyway so a scrubbed view can never inject a move into the live game.
+  if (phase.value !== 'player' || viewPly.value !== null) return
   const myRun = runId
   const fenBefore = fen.value
   const played = move({ from: payload.orig, to: payload.dest })
   if (!played) return // illegal — chessground snaps the piece back
 
   const playedUci = moveToUci(played)
+  moves.value.push(playedUci) // record the human's ply for the scrubber + resume
   phase.value = 'scoring'
 
   try {
@@ -181,12 +269,13 @@ async function onMove(payload: { orig: Key; dest: Key }): Promise<void> {
   }
 }
 
-/** Apply a long-algebraic reply to the board; true if it was legal and applied. */
-function applyReply(uci: string | null): boolean {
-  if (!uci || uci === '(none)') return false
+/** Apply a long-algebraic reply to the board; the applied move's UCI, or null if illegal. */
+function applyReply(uci: string | null): string | null {
+  if (!uci || uci === '(none)') return null
   const m = parseUciMove(uci)
-  if (!m) return false
-  return move({ from: m.from, to: m.to, promotion: m.promotion }) !== null
+  if (!m) return null
+  const applied = move({ from: m.from, to: m.to, promotion: m.promotion })
+  return applied ? moveToUci(applied) : null
 }
 
 async function playOpponent(suggestedReply: string | null, myRun: number): Promise<void> {
@@ -197,11 +286,13 @@ async function playOpponent(suggestedReply: string | null, myRun: number): Promi
   // Apply the opponent's reply. The suggested move (pv[1]/ponder from the scoring
   // search) is free; if it's missing or somehow illegal, fall back to a dedicated
   // best-move search so a truncated PV can never hang the game.
-  if (!applyReply(suggestedReply) && !isGameOver.value) {
+  let replyUci = applyReply(suggestedReply)
+  if (!replyUci && !isGameOver.value) {
     const best = await scoring.searchBest(fen.value)
     if (myRun !== runId) return
-    applyReply(best.bestmove)
+    replyUci = applyReply(best.bestmove)
   }
+  if (replyUci) moves.value.push(replyUci) // record the engine's ply for the scrubber + resume
 
   // Terminal from the opponent's reply?
   if (terminal.value) { scoring.recordTerminal(); return endRun() }
@@ -214,6 +305,7 @@ async function playOpponent(suggestedReply: string | null, myRun: number): Promi
   }
 
   phase.value = 'player'
+  persist('player') // a completed ply — snapshot so a refresh resumes here exactly
   scoring.prefetch(fen.value).catch(() => {}) // prefetch the new position
 }
 
@@ -238,12 +330,70 @@ async function retryPosition(): Promise<void> {
   else await nextPosition()
 }
 
+/**
+ * Resume a persisted run exactly: rebuild the board by replaying every recorded ply,
+ * re-seat the scoring state machine + engine config, and restore the win% history and
+ * view. Deliberately does NOT touch history or the ladder — an 'over' snapshot was
+ * already counted when it first ended (pre-refresh), and a 'player' snapshot is still
+ * in progress; restore must never double-count either.
+ */
+function restoreRun(s: ActiveRun): void {
+  runId++ // invalidate anything in flight (paranoia; nothing runs before mount)
+  currentPosition.value = s.position
+  humanColor.value = s.humanColor
+  playedTarget.value = s.playedTarget
+  winHistory.value = [...s.winHistory]
+  fatalLoss.value = s.fatalLoss
+  runError.value = s.runError
+  moves.value = [...s.moves]
+  viewPly.value = null
+
+  scoring.restore({ run: s.run, nodes: s.nodes, config: s.config, currentEval: s.currentEval })
+
+  // Rebuild the board: load the start, then replay each ply through the one chess.js.
+  load(s.position.fen)
+  for (const uci of s.moves) {
+    const m = parseUciMove(uci)
+    if (m) move({ from: m.from, to: m.to, promotion: m.promotion })
+  }
+
+  if (s.phase === 'over') {
+    phase.value = 'over'
+    return
+  }
+  phase.value = 'player'
+  scoring.prefetch(fen.value).catch(() => {}) // re-prime the search for the resumed position
+}
+
+/** ←/→ scrub the run's moves — unless a form field is focused or a modifier is held. */
+function onKey(e: KeyboardEvent): void {
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+  if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return
+  if (tip.value === 0) return // nothing to scrub
+  const el = document.activeElement as HTMLElement | null
+  if (
+    el &&
+    (el.tagName === 'INPUT' ||
+      el.tagName === 'TEXTAREA' ||
+      el.tagName === 'SELECT' ||
+      el.isContentEditable)
+  ) {
+    return // let arrow keys edit the focused field (e.g. settings inputs)
+  }
+  e.preventDefault()
+  scrubBy(e.key === 'ArrowLeft' ? -1 : 1)
+}
+
 onMounted(async () => {
+  window.addEventListener('keydown', onKey)
   void loadHistory() // hydrates best-n + recent runs in the background; never blocks play
   try {
     await scoring.init()
     await positions.load() // nextPosition surfaces a load failure as a run error
-    await nextPosition()
+    // Resume a run interrupted by a refresh; otherwise deal a fresh start.
+    const saved = await activeRun.loadSaved()
+    if (saved) restoreRun(saved)
+    else await nextPosition()
   } catch (e) {
     runError.value = (e as Error).message
     phase.value = 'over'
@@ -251,7 +401,10 @@ onMounted(async () => {
 })
 
 // Invalidate any pending continuation if the component goes away mid-loop.
-onBeforeUnmount(() => { runId++ })
+onBeforeUnmount(() => {
+  runId++
+  window.removeEventListener('keydown', onKey)
+})
 </script>
 
 <template>
@@ -271,14 +424,14 @@ onBeforeUnmount(() => { runId++ })
         <div class="board-frame">
           <div class="board-stage">
             <BoardPanel
-              :fen="fen"
+              :fen="view.fen"
               :orientation="orientation"
-              :turn-color="turnColor"
-              :dests="dests"
-              :movable-color="movableColor"
-              :last-move="lastMove"
-              :check="check"
-              :view-only="locked"
+              :turn-color="view.turnColor"
+              :dests="view.dests"
+              :movable-color="view.movableColor"
+              :last-move="view.lastMove"
+              :check="view.check"
+              :view-only="view.viewOnly"
               @move="onMove"
             />
           </div>
@@ -288,6 +441,21 @@ onBeforeUnmount(() => { runId++ })
           <span v-if="searching" class="spinner" />
           {{ statusText }}
         </p>
+
+        <!-- Persistent nav: scrub the run with ◀ / ▶ (or ← / →) and restart / move on.
+             Always mounted — during play and on the run-over screen alike. -->
+        <RunControls
+          :ply="viewIndex"
+          :total-plies="tip"
+          :at-live="atLive"
+          :can-scrub="tip > 0"
+          :busy="phase === 'booting'"
+          @prev="scrubBy(-1)"
+          @next="scrubBy(1)"
+          @live="viewPly = null"
+          @restart="retryPosition"
+          @next-position="nextPosition"
+        />
 
         <!-- Below the board, never over it — the final position stays visible to study
              on every ending (win, blunder, drift, terminal). -->
@@ -307,8 +475,6 @@ onBeforeUnmount(() => { runId++ })
           :win-history="winHistory"
           :fatal-loss="fatalLoss"
           :run-error="runError"
-          @next="nextPosition"
-          @retry="retryPosition"
         />
       </div>
 

@@ -35,8 +35,8 @@ const props = defineProps<{
   runError?: string | null
 }>()
 
-const emit = defineEmits<{ next: []; retry: [] }>()
-
+// No actions here: Restart / Next live in the persistent RunControls panel above, so
+// they're reachable mid-run too, not only at the summary. This card is pure readout.
 const won = computed(() => props.status === 'max-n')
 const busted = computed(() => props.status === 'blunder' || props.status === 'budget')
 // A win that pushed the streak over the top; a bust that pushed busts over the top.
@@ -158,11 +158,6 @@ const points = computed(() => {
           </svg>
           <p class="spark-cap">win% across the run</p>
         </template>
-
-        <div class="controls">
-          <button class="nm-btn" @click="emit('next')">Next position →</button>
-          <button class="nm-btn ghost" @click="emit('retry')">Retry this one</button>
-        </div>
       </div>
     </div>
   </section>
@@ -340,16 +335,5 @@ const points = computed(() => {
   text-align: center;
   font-size: 0.7rem;
   color: var(--text-dim);
-}
-.controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  margin-top: 1rem;
-}
-.controls .nm-btn {
-  flex: 1;
-  font-size: 1rem;
-  padding: 0.55rem 0.9rem;
 }
 </style>
