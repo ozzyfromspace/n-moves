@@ -30,9 +30,10 @@ export function initLadder(): LadderState {
  * Fold a finished run's outcome into the ladder, given how many wins in a row climb a
  * level and how many busts in a row drop one. A win ('max-n') extends the win streak
  * and clears busts; at `winsToAdvance` the level climbs and both reset. A bust
- * ('blunder' / 'budget') extends the bust streak and clears wins; at `lossesToDemote`
- * the level drops one (floored at the start) and both reset. Anything else (terminal,
- * or a still-active run) leaves the ladder untouched.
+ * ('blunder' / 'budget' / 'forfeit' — a blown move, a spent budget, or a bail to a new
+ * position) extends the bust streak and clears wins; at `lossesToDemote` the level drops
+ * one (floored at the start) and both reset. Anything else (terminal, or a still-active
+ * run) leaves the ladder untouched.
  */
 export function advanceLadder(
   state: LadderState,
@@ -46,7 +47,7 @@ export function advanceLadder(
     if (streak >= Math.max(1, winsToAdvance)) return { level: state.level + 1, streak: 0, busts: 0 }
     return { level: state.level, streak, busts: 0 }
   }
-  if (status === 'blunder' || status === 'budget') {
+  if (status === 'blunder' || status === 'budget' || status === 'forfeit') {
     const busts = state.busts + 1
     if (busts >= Math.max(1, lossesToDemote)) {
       return { level: Math.max(START_LEVEL, state.level - 1), streak: 0, busts: 0 }

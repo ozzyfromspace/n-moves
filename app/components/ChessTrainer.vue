@@ -9,6 +9,7 @@ import { parseUciMove } from '~/lib/uci'
 import { evalToWinProb } from '~/lib/winprob'
 import { buildTimeline } from '~/lib/timeline'
 import { toFigurine, uciLineToSan } from '~/lib/notation'
+import { START_LEVEL } from '~/lib/ladder'
 import { ACTIVE_RUN_VERSION, type ActiveRun } from '~/lib/activeRun'
 import type { Move } from 'chess.js'
 import type { Color, Dests, Key } from 'chessground/types'
@@ -106,6 +107,8 @@ const viewPly = ref<number | null>(null)
 // not from the choice you should have made), so the no-hints rule holds. null otherwise.
 const refutation = ref<{ shape: DrawShape; line: string[] } | null>(null)
 const refutationPending = ref(false)
+// True while the "skip mid-challenge counts as a loss" confirmation is up (see requestNext).
+const confirmingForfeit = ref(false)
 
 // Invalidates in-flight async continuations when the position changes underfoot
 // (e.g. the user hits "Next position" mid-search or mid-reply).
@@ -477,8 +480,83 @@ async function playOpponent(suggestedReply: string | null, myRun: number): Promi
   scoring.prefetch(fen.value).catch(() => {}) // prefetch the new position
 }
 
-/** Draw a fresh start (bucket-balanced, honouring the eval-range filter) and run it. */
+// Would clicking "Next" right now abandon a genuine, unfinished, non-banked run? If so it's
+// a forfeit — a loss — so you can't skip a hard start to protect the ladder. Not on the
+// run-over summary (already counted), the boot deal, or a free banked replay.
+const nextForfeits = computed(
+  () =>
+    !!currentPosition.value &&
+    status.value === 'active' &&
+    phase.value !== 'booting' &&
+    phase.value !== 'over' &&
+    !bankedAtStart.value,
+)
+
+// What a forfeit costs the ladder right now, surfaced in the confirmation so the choice is
+// informed. A bust clears the win streak and adds a strike; at the demotion threshold it
+// drops a level (never below the floor).
+const forfeitConsequence = computed(() => {
+  const ltd = Math.max(1, settings.lossesToDemote)
+  const nextBusts = busts.value + 1
+  if (nextBusts >= ltd && level.value > START_LEVEL) {
+    return `It drops you from level ${level.value} to ${level.value - 1}.`
+  }
+  if (level.value <= START_LEVEL) {
+    return streak.value > 0
+      ? `You're on the level-1 floor — no drop, but it wipes your ${streak.value}-clean streak.`
+      : `You're on the level-1 floor — no drop, but a bail is still a loss.`
+  }
+  const tail = `${ltd - nextBusts} more would drop you a level.`
+  return streak.value > 0
+    ? `Wipes your ${streak.value}-clean streak — strike ${nextBusts} of ${ltd} at level ${level.value}, ${tail}`
+    : `Strike ${nextBusts} of ${ltd} at level ${level.value} — ${tail}`
+})
+
+/** Record an abandoned live run as a loss: a history strike + a ladder bust. Called from
+ *  nextPosition once the user has confirmed; reads the run's live n/drift/params first,
+ *  before startRun resets them. Banked replays never reach here (nextForfeits gates it). */
+function forfeitRun(): void {
+  if (!currentPosition.value) return
+  recordRun({
+    n: n.value,
+    drift: drift.value,
+    status: 'forfeit',
+    startFen: currentPosition.value.fen,
+    nodes: nodes.value,
+    budget: config.budget,
+    blunderCap: config.blunderCap,
+    maxN: config.maxN,
+  })
+  recordLadder('forfeit', settings.winsToAdvance, settings.lossesToDemote) // a bust → streak/demotion
+}
+
+/** The "Next →" entry point: a free deal on the summary, but a confirmed forfeit mid-run. */
+function requestNext(): void {
+  if (nextForfeits.value) confirmingForfeit.value = true
+  else void nextPosition()
+}
+
+function confirmForfeit(): void {
+  confirmingForfeit.value = false
+  void nextPosition() // re-checks nextForfeits and records the loss before dealing
+}
+
+function cancelForfeit(): void {
+  confirmingForfeit.value = false
+}
+
+// When the modal opens, land focus on the safe choice (Keep playing) — so Enter/Space backs
+// out, not forfeits, and keyboard users start on the non-destructive default.
+const keepPlayingBtn = ref<HTMLButtonElement | null>(null)
+watch(confirmingForfeit, (open) => {
+  if (open) nextTick(() => keepPlayingBtn.value?.focus())
+})
+
+/** Draw a fresh start (bucket-balanced, honouring the eval-range filter) and run it. A live
+ *  challenge abandoned this way is forfeited (a loss) — but only after a successful deal, so
+ *  a failed deal (e.g. an over-narrow filter) leaves your run untouched. */
 async function nextPosition(): Promise<void> {
+  const forfeiting = nextForfeits.value
   const range = settings.evalRange
   const pos = positions.pick(range ? { range } : undefined)
   if (!pos) {
@@ -488,6 +566,7 @@ async function nextPosition(): Promise<void> {
     phase.value = 'over'
     return
   }
+  if (forfeiting) forfeitRun() // count the bail as a loss before the new run reseats state
   positionBanked.value = false // a fresh deal is ladder-eligible again (Restart keeps the bank)
   currentPosition.value = pos
   await startRun(pos.fen)
@@ -585,6 +664,11 @@ function restoreRun(s: ActiveRun): void {
 
 /** ←/→ scrub the run's moves — unless a form field is focused or a modifier is held. */
 function onKey(e: KeyboardEvent): void {
+  if (confirmingForfeit.value) {
+    // Modal is up: Escape backs out (the safe default); swallow the scrub keys behind it.
+    if (e.key === 'Escape') { e.preventDefault(); cancelForfeit() }
+    return
+  }
   if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
   if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return
   if (exploring.value) return // a post-mortem owns the board; the run scrubber is hidden
@@ -676,7 +760,7 @@ onBeforeUnmount(() => {
           @next="scrubBy(1)"
           @live="viewPly = null"
           @restart="retryPosition"
-          @next-position="nextPosition"
+          @next-position="requestNext"
         />
 
         <!-- Below the board, never over it — the final position stays visible to study
@@ -754,6 +838,22 @@ onBeforeUnmount(() => {
         <SettingsPanel :banked="positionBanked" @drop-banked="dropBanked" />
         <HistoryPanel />
       </aside>
+    </div>
+
+    <!-- Skipping a live challenge is a loss — confirm it, with the ladder cost spelled out,
+         so an accidental click can't quietly demote you. Escape / backdrop = keep playing. -->
+    <div v-if="confirmingForfeit" class="confirm-backdrop" @click.self="cancelForfeit">
+      <div class="confirm-card" role="alertdialog" aria-labelledby="cf-title" aria-describedby="cf-body">
+        <p id="cf-title" class="confirm-title">Skip this position?</p>
+        <p id="cf-body" class="confirm-body">
+          Moving on counts as a loss. {{ forfeitConsequence }}
+          <span class="confirm-hint">Restart keeps the same position for free.</span>
+        </p>
+        <div class="confirm-actions">
+          <button ref="keepPlayingBtn" type="button" class="nm-btn ghost" @click="cancelForfeit">Keep playing</button>
+          <button type="button" class="nm-btn danger" @click="confirmForfeit">Forfeit &amp; skip</button>
+        </div>
+      </div>
     </div>
   </main>
 </template>
@@ -902,6 +1002,79 @@ onBeforeUnmount(() => {
 }
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+/* Forfeit confirmation — a full-screen modal (z above the board's leaked piece z-indices). */
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(4, 8, 16, 0.66);
+  backdrop-filter: blur(3px);
+  animation: cf-fade 0.14s ease;
+}
+.confirm-card {
+  width: min(26rem, 100%);
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--bad) 45%, var(--hairline));
+  background: linear-gradient(160deg, var(--surface-2), var(--surface) 60%, var(--bg-sunken));
+  box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  padding: 1.2rem 1.3rem 1.1rem;
+}
+.confirm-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.confirm-body {
+  margin: 0.5rem 0 0;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.confirm-hint {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+.confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-top: 1.1rem;
+}
+.confirm-actions .nm-btn {
+  font-size: 1rem;
+  padding: 0.5em 1.1em;
+}
+/* The destructive choice reads red, not the default cyan. White text for contrast on the fill. */
+.confirm-actions .nm-btn.danger {
+  color: #fff;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--bad), #fff 20%) 0%,
+    var(--bad) 52%,
+    color-mix(in srgb, var(--bad), #000 18%) 100%
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 6px 18px -6px rgba(255, 59, 92, 0.6);
+}
+.confirm-actions .nm-btn.danger:hover {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 8px 26px -6px rgba(255, 59, 92, 0.85);
+}
+@keyframes cf-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .confirm-backdrop { animation: none; }
 }
 @media (max-width: 36rem) {
   .trainer {

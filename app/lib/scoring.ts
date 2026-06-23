@@ -20,8 +20,9 @@ export function moveLoss(best: EvalScore, played: EvalScore): number {
   return Math.max(0, evalToWinProb(best) - evalToWinProb(played))
 }
 
-/** How a run ended; 'active' = still going. */
-export type RunStatus = 'active' | 'budget' | 'blunder' | 'max-n' | 'terminal'
+/** How a run ended; 'active' = still going. 'forfeit' = you skipped to a new position
+ *  mid-challenge — a deliberate bail, counted as a loss so you can't dodge a hard start. */
+export type RunStatus = 'active' | 'budget' | 'blunder' | 'max-n' | 'terminal' | 'forfeit'
 
 export interface RunConfig {
   /** Cumulative win%-pts of drift the run can absorb before it ends. */

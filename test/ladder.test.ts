@@ -66,6 +66,21 @@ describe('advanceLadder — demoting', () => {
       busts: 0,
     })
   })
+
+  it('treats a forfeit (bail to a new position) as a bust', () => {
+    // Clears the win streak and adds a strike, like any loss…
+    expect(advanceLadder({ level: 4, streak: 2, busts: 0 }, 'forfeit', WTA, LTD)).toEqual({
+      level: 4,
+      streak: 0,
+      busts: 1,
+    })
+    // …and drops a level on the lossesToDemote-th in a row.
+    expect(advanceLadder({ level: 4, streak: 0, busts: 2 }, 'forfeit', WTA, LTD)).toEqual({
+      level: 3,
+      streak: 0,
+      busts: 0,
+    })
+  })
 })
 
 describe('advanceLadder — neutral', () => {

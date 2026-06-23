@@ -32,6 +32,7 @@ export const RUN_STATUS_SHORT: Record<RunStatus, string> = {
   blunder: 'blunder',
   budget: 'drift',
   terminal: 'ended',
+  forfeit: 'skipped',
 }
 
 /** Only a held run ('max-n') is a win; everything else ended the run early. */
