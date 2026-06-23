@@ -14,7 +14,7 @@ import type { RunConfig, RunState } from '~/lib/scoring'
 // a clean "player to move" (even ply count) or a finished run.
 
 /** Bump whenever the shape below changes — an older snapshot is then ignored, not misread. */
-export const ACTIVE_RUN_VERSION = 1
+export const ACTIVE_RUN_VERSION = 3
 
 export interface ActiveRun {
   /** Schema guard; must equal ACTIVE_RUN_VERSION to be restored. */
@@ -33,6 +33,20 @@ export interface ActiveRun {
   fatalLoss: number | null
   /** The survive-target (ladder level) this run was played at — fixed for the run. */
   playedTarget: number
+  /**
+   * Whether this position has already been won and banked. Set on a win; preserved
+   * across "Restart" (same position) and cleared by "Next" (a fresh deal) or the
+   * settings "Drop banked" button. While true, a replay of this position doesn't touch
+   * the ladder or history — your win is locked until you move on.
+   */
+  banked: boolean
+  /**
+   * Whether the run in this snapshot *started* on an already-banked position. Drives the
+   * "Banked ✓" summary and the no-count decision, fixed at run start (so dropping the
+   * bank can't relabel a finished run). Differs from `banked` only on a first win, where
+   * the run started un-banked (counts) but banking it set `banked` true for next time.
+   */
+  bankedAtStart: boolean
   /** The run's fixed search work, snapshotted (settings can change between runs). */
   nodes: number
   /** The run's end thresholds, snapshotted (budget / blunder cap / max-n). */
@@ -69,6 +83,8 @@ export function isValidActiveRun(v: unknown): v is ActiveRun {
   }
   if (!Array.isArray(r.winHistory)) return false
   if (typeof r.config !== 'object' || r.config === null) return false
+  if (typeof r.banked !== 'boolean') return false
+  if (typeof r.bankedAtStart !== 'boolean') return false
   if (r.phase !== 'player' && r.phase !== 'over') return false
   return true
 }

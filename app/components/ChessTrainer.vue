@@ -47,6 +47,15 @@ const humanColor = ref<Color>('white')
 const currentPosition = ref<PositionRecord | null>(null)
 // The survival target this run is played at (the ladder level at run start).
 const playedTarget = ref(level.value)
+// True once the current position has been won and banked. Persisted, preserved across
+// "Restart", cleared by "Next" or the settings "Drop banked" button — while set, a
+// replay of this position counts toward neither the ladder nor history, so
+// experimenting on a position you've already cleared can't demote you.
+const positionBanked = ref(false)
+// Whether THIS run *started* on an already-banked position — captured at run start so a
+// later Drop can't relabel a finished run. Drives the "Banked ✓" summary and the
+// no-count decision (a banked replay is free practice; a first win still counts).
+const bankedAtStart = ref(false)
 const runError = ref<string | null>(null)
 
 // Win%-pts a run-ending blunder cost — the only number the run-over screen shows about
@@ -149,6 +158,8 @@ function snapshot(savePhase: 'player' | 'over'): ActiveRun | null {
     winHistory: [...winHistory.value],
     fatalLoss: fatalLoss.value,
     playedTarget: playedTarget.value,
+    banked: positionBanked.value,
+    bankedAtStart: bankedAtStart.value,
     nodes: nodes.value,
     config: { budget: config.budget, blunderCap: config.blunderCap, maxN: config.maxN },
     currentEval: live ? { ...live } : null,
@@ -172,18 +183,24 @@ function endRun(): void {
   // re-searches, recovering from the transient failure. Both update synchronously, so
   // the run-over screen already reflects the new ladder level / streak.
   if (currentPosition.value && status.value !== 'active') {
-    recordRun({
-      n: n.value,
-      drift: drift.value,
-      status: status.value,
-      startFen: currentPosition.value.fen,
-      nodes: nodes.value,
-      budget: config.budget,
-      blunderCap: config.blunderCap,
-      maxN: config.maxN,
-    })
-    recordLadder(status.value, settings.winsToAdvance, settings.lossesToDemote) // win/bust streaks → climb/drop
-    persist('over') // resume the summary on refresh; never re-records (restore skips endRun)
+    // A run that STARTED banked is a replay of a position you've already won: it counts
+    // toward neither the ladder nor history, so experimenting can't demote you. A first
+    // win (started un-banked) still counts and then banks the position for next time.
+    if (!bankedAtStart.value) {
+      recordRun({
+        n: n.value,
+        drift: drift.value,
+        status: status.value,
+        startFen: currentPosition.value.fen,
+        nodes: nodes.value,
+        budget: config.budget,
+        blunderCap: config.blunderCap,
+        maxN: config.maxN,
+      })
+      recordLadder(status.value, settings.winsToAdvance, settings.lossesToDemote) // win/bust streaks → climb/drop
+      if (status.value === 'max-n') positionBanked.value = true // a win banks this position
+    }
+    persist('over') // resume the summary on refresh (banked replays too); never re-records
   }
   phase.value = 'over'
 }
@@ -206,6 +223,9 @@ function applySettings(): void {
 async function startRun(fen0: string): Promise<void> {
   const myRun = ++runId
   applySettings()
+  // Is this a replay of an already-banked position? Captured now (Next cleared the flag
+  // for a fresh deal; Restart preserved it) so a mid-run Drop can't relabel this run.
+  bankedAtStart.value = positionBanked.value
   runError.value = null
   fatalLoss.value = null
   winHistory.value = []
@@ -320,6 +340,7 @@ async function nextPosition(): Promise<void> {
     phase.value = 'over'
     return
   }
+  positionBanked.value = false // a fresh deal is ladder-eligible again (Restart keeps the bank)
   currentPosition.value = pos
   await startRun(pos.fen)
 }
@@ -328,6 +349,21 @@ async function nextPosition(): Promise<void> {
 async function retryPosition(): Promise<void> {
   if (currentPosition.value) await startRun(currentPosition.value.fen)
   else await nextPosition()
+}
+
+/**
+ * Drop the current position's banked status (from the settings panel), so the next
+ * attempt on it counts toward the ladder again. The in-progress/finished run keeps its
+ * label (bankedAtStart was fixed at run start); only a subsequent Restart is re-armed.
+ * Persists the cleared flag at a resting point so the drop survives a refresh.
+ */
+function dropBanked(): void {
+  if (!positionBanked.value) return
+  positionBanked.value = false
+  if (!currentPosition.value) return
+  if (status.value !== 'active') persist('over')
+  else if (phase.value === 'player') persist('player')
+  // mid-search: the next stable save (completed ply / run end) persists the cleared flag
 }
 
 /**
@@ -342,6 +378,8 @@ function restoreRun(s: ActiveRun): void {
   currentPosition.value = s.position
   humanColor.value = s.humanColor
   playedTarget.value = s.playedTarget
+  positionBanked.value = s.banked
+  bankedAtStart.value = s.bankedAtStart
   winHistory.value = [...s.winHistory]
   fatalLoss.value = s.fatalLoss
   runError.value = s.runError
@@ -475,6 +513,7 @@ onBeforeUnmount(() => {
           :win-history="winHistory"
           :fatal-loss="fatalLoss"
           :run-error="runError"
+          :locked="bankedAtStart"
         />
       </div>
 
@@ -492,7 +531,7 @@ onBeforeUnmount(() => {
           :losses-to-demote="settings.lossesToDemote"
           :status="status"
         />
-        <SettingsPanel />
+        <SettingsPanel :banked="positionBanked" @drop-banked="dropBanked" />
         <HistoryPanel />
       </aside>
     </div>
@@ -560,6 +599,14 @@ onBeforeUnmount(() => {
 }
 .board-col {
   flex: 0 0 auto;
+  /* Pin the column to the board's footprint — the board (--board-size) plus the 12px
+     frame padding on each side. Without a fixed width the column's max-content tracks
+     its widest child, so a long line in the controls or the run-over / "Banked" summary
+     below stretches the neon frame past the board and shifts the layout as it renders.
+     --board-size is set here so the stage and board inherit the same value. */
+  --board-size: min(80vmin, 480px);
+  width: calc(var(--board-size) + 24px);
+  min-width: 0;
 }
 .board-frame {
   position: relative;

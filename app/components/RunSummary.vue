@@ -33,6 +33,8 @@ const props = defineProps<{
   winHistory: number[]
   /** Set when the run stopped on an unexpected error rather than a rule. */
   runError?: string | null
+  /** True when this was a replay of an already-won, banked position — ladder untouched. */
+  locked?: boolean
 }>()
 
 // No actions here: Restart / Next live in the persistent RunControls panel above, so
@@ -43,11 +45,14 @@ const busted = computed(() => props.status === 'blunder' || props.status === 'bu
 const advanced = computed(() => won.value && props.level > props.target)
 const demoted = computed(() => busted.value && props.level < props.target)
 const tone = computed(() =>
-  props.runError || props.status === 'terminal' ? 'neutral' : won.value ? 'good' : 'bad',
+  props.runError || props.locked || props.status === 'terminal'
+    ? 'neutral'
+    : won.value ? 'good' : 'bad',
 )
 
 const headline = computed(() => {
   if (props.runError) return 'Run stopped'
+  if (props.locked) return 'Banked ✓'
   if (advanced.value) return 'Level up!'
   if (demoted.value) return 'Demoted ↓'
   switch (props.status) {
@@ -61,6 +66,9 @@ const headline = computed(() => {
 
 const detail = computed(() => {
   if (props.runError) return props.runError
+  if (props.locked) {
+    return 'You already cleared this one — it\'s banked. Replays won\'t move your ladder; hit Next for a fresh position.'
+  }
   const wta = props.winsToAdvance
   const ltd = props.lossesToDemote
   const t = props.target
@@ -82,8 +90,9 @@ const detail = computed(() => {
 })
 
 // One contextual progress track: green pips toward a climb on a win, red strikes
-// toward a demotion on a bust. A climb/drop lights the whole row for the beat.
-const showPips = computed(() => won.value || busted.value)
+// toward a demotion on a bust. A climb/drop lights the whole row for the beat. A
+// banked replay shows none — the ladder didn't move, so there's no progress to claim.
+const showPips = computed(() => !props.locked && (won.value || busted.value))
 const pipTotal = computed(() => (busted.value ? props.lossesToDemote : props.winsToAdvance))
 const pipLit = computed(() => {
   if (busted.value) return demoted.value ? props.lossesToDemote : props.busts

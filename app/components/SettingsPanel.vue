@@ -15,6 +15,11 @@ import {
   type Bucket,
 } from '~/lib/positions'
 
+// `banked` = the current position is won/locked; the Drop button asks the trainer
+// (our parent) to un-bank it so a fresh attempt counts toward the ladder again.
+defineProps<{ banked?: boolean }>()
+const emit = defineEmits<{ dropBanked: [] }>()
+
 const { settings, reset } = useSettings()
 const { level, reset: resetLadder } = useLadder()
 const open = ref(false)
@@ -140,6 +145,12 @@ function fmtNodes(n: number): string {
       <div class="actions">
         <button class="reset" @click="reset">Reset settings</button>
         <button class="reset" @click="resetLadder" title="Back to level 1">Reset ladder</button>
+        <button
+          class="reset"
+          :disabled="!banked"
+          title="Un-bank the current position so wins and losses on it count toward the ladder again"
+          @click="emit('dropBanked')"
+        >Drop banked</button>
       </div>
     </div>
   </section>
@@ -289,6 +300,7 @@ function fmtNodes(n: number): string {
 }
 .actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
 }
 .reset {
@@ -304,8 +316,13 @@ function fmtNodes(n: number): string {
   cursor: pointer;
   transition: color 0.15s ease, border-color 0.15s ease;
 }
-.reset:hover {
+.reset:hover:not(:disabled) {
   border-color: var(--neon-cyan);
   color: var(--neon-cyan);
+}
+.reset:disabled {
+  opacity: 0.45;
+  color: var(--text-dim);
+  cursor: default;
 }
 </style>
