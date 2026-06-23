@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// Live run readout: the player's positional win%, the drift gauge (cumulative
-// win% lost vs the budget), and n / best-n. Pure presentation — every number
-// arrives as a prop from useScoring via ChessTrainer; no engine or chess logic.
+// Live run readout: positional win%, the drift gauge (cumulative win% lost vs budget),
+// moves survived toward this run's level, and a single contextual progress track —
+// green pips toward the next level on a win streak, red strikes toward a demotion when
+// you're busting. Pure presentation; every number is a prop from ChessTrainer.
 import type { RunStatus } from '~/lib/scoring'
 
 const props = defineProps<{
@@ -11,10 +12,20 @@ const props = defineProps<{
   drift: number
   /** Drift budget; the run ends once drift reaches it. */
   budget: number
-  /** Plies survived this run. */
+  /** Your moves survived this run. */
   n: number
-  /** Best n ever (all-time, from persisted history). */
-  bestN: number
+  /** This run's survival target — the level in play. */
+  target: number
+  /** Current ladder level. */
+  level: number
+  /** Consecutive clean runs banked at this level. */
+  streak: number
+  /** Consecutive busts at this level. */
+  busts: number
+  /** Clean runs in a row needed to climb a level. */
+  winsToAdvance: number
+  /** Busts in a row that drop a level. */
+  lossesToDemote: number
   status: RunStatus
 }>()
 
@@ -28,12 +39,26 @@ const driftTone = computed(() =>
   driftPct.value >= 80 ? 'bad' : driftPct.value >= 50 ? 'warn' : 'good',
 )
 
+// At most one of streak/busts is ever non-zero. When busting, show the red demotion
+// track; otherwise the green climb track.
+const failing = computed(() => props.busts > 0)
+const pipTotal = computed(() => (failing.value ? props.lossesToDemote : props.winsToAdvance))
+const pipLit = computed(() => (failing.value ? props.busts : props.streak))
+const trackCap = computed(() => {
+  if (failing.value) {
+    const left = props.lossesToDemote - props.busts
+    return props.level > 1 ? `${left} more → level ${props.level - 1}` : 'hold level 1'
+  }
+  if (props.streak === 0) return `${props.winsToAdvance} clean → level ${props.level + 1}`
+  return `${props.winsToAdvance - props.streak} more → level ${props.level + 1}`
+})
+
 const statusLabel: Record<RunStatus, string> = {
   active: '',
   blunder: 'Blunder — run over',
-  budget: 'Budget spent — run over',
-  'max-n': 'Held! 🎉',
-  terminal: 'Terminal position',
+  budget: 'Drift spent — run over',
+  'max-n': 'Clean run! 🎉',
+  terminal: 'Game ended',
 }
 </script>
 
@@ -63,13 +88,20 @@ const statusLabel: Record<RunStatus, string> = {
 
     <div class="counters">
       <div class="counter">
-        <span class="big">{{ n }}</span>
-        <span class="label">plies survived</span>
+        <span class="big">{{ n }}<span class="den"> / {{ target }}</span></span>
+        <span class="label">moves survived</span>
       </div>
       <div class="counter">
-        <span class="big muted">{{ bestN }}</span>
-        <span class="label">best ever</span>
+        <span class="big">{{ level }}</span>
+        <span class="label">level</span>
       </div>
+    </div>
+
+    <div class="track">
+      <span class="pips" role="img" :aria-label="`${pipLit} of ${pipTotal}`">
+        <span v-for="i in pipTotal" :key="i" :class="['pip', { on: i <= pipLit, strike: failing }]" />
+      </span>
+      <span class="track-cap">{{ trackCap }}</span>
     </div>
 
     <p v-if="status !== 'active'" :class="['badge', status]">
@@ -138,8 +170,33 @@ const statusLabel: Record<RunStatus, string> = {
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
-.big.muted {
-  color: #bbb;
+.den {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #9ca3af;
+}
+.track {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: -0.4rem;
+}
+.pips {
+  display: inline-flex;
+  gap: 0.3rem;
+}
+.pip {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: #e5e7eb;
+  box-shadow: inset 0 0 0 1px #d1d5db;
+}
+.pip.on { background: #16a34a; box-shadow: none; }
+.pip.on.strike { background: #dc2626; }
+.track-cap {
+  font-size: 0.74rem;
+  color: #9ca3af;
 }
 .badge {
   margin: 0;

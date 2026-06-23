@@ -164,6 +164,19 @@ describe('pickPosition', () => {
     const records = [rec(0), rec(10), rec(300)]
     expect(pickPosition(records, { balanced: false }, seq([0]))?.cpStm).toBe(0)
   })
+
+  it('skips excluded FENs while a fresh start remains', () => {
+    const a: PositionRecord = { fen: 'A', cpWhite: 0, sideToMove: 'white', cpStm: 0 }
+    const b: PositionRecord = { fen: 'B', cpWhite: 10, sideToMove: 'white', cpStm: 10 }
+    // Both sit in the equal bucket; excluding A must hand back B.
+    expect(pickPosition([a, b], { exclude: new Set(['A']) }, seq([0, 0]))?.fen).toBe('B')
+  })
+
+  it('ignores the exclude set when it would empty the pool', () => {
+    const a: PositionRecord = { fen: 'A', cpWhite: 0, sideToMove: 'white', cpStm: 0 }
+    // Excluding the only candidate falls back to serving it, not returning null.
+    expect(pickPosition([a], { exclude: new Set(['A']) }, seq([0, 0]))?.fen).toBe('A')
+  })
 })
 
 describe('positions.sample.json', () => {

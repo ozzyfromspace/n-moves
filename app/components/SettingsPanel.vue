@@ -1,11 +1,11 @@
 <script setup lang="ts">
-// Collapsible sidebar settings: the run tunables (search work, drift budget,
-// blunder cap, slip display) and the eval-range filter. Bound straight to the
-// shared reactive settings (useSettings), so every change persists to localStorage
-// via that composable. Changes take effect on the NEXT run — ChessTrainer snapshots
-// the settings when a run starts, so a mid-run tweak can't skew an in-flight drift
-// comparison. Sliders are clamped to lib/settings' bounds; the eval filter is two
-// bucket dropdowns written back as a cp range.
+// Collapsible sidebar settings: the run tunables (search work, drift-per-move, the
+// clean-runs-to-climb and busts-to-drop thresholds, blunder cap) and the
+// eval-range filter. Bound straight to the shared reactive settings (useSettings), so
+// every change persists to localStorage via that composable. Changes take effect on the
+// NEXT run — ChessTrainer snapshots the settings + level when a run starts, so a mid-run
+// tweak can't skew an in-flight comparison. Sliders are clamped to lib/settings' bounds;
+// the eval filter is two bucket dropdowns written as a cp range.
 import { SETTINGS_BOUNDS } from '~/lib/settings'
 import {
   BUCKET_KEYS,
@@ -16,8 +16,13 @@ import {
 } from '~/lib/positions'
 
 const { settings, reset } = useSettings()
+const { level, reset: resetLadder } = useLadder()
 const open = ref(false)
 const bounds = SETTINGS_BOUNDS
+
+// The cumulative drift budget the current level resolves to (per-move × level), using
+// the same rounding ChessTrainer applies — so this note matches the live drift gauge.
+const budgetThisLevel = computed(() => Math.max(1, Math.round(settings.driftPerMove * level.value)))
 
 // The eval filter as two ordered bucket dropdowns. Picking a `from` past the
 // current `to` (or vice versa) drags the other end along, so the pair stays valid.
@@ -68,15 +73,39 @@ function fmtNodes(n: number): string {
       </label>
 
       <label class="row">
-        <span class="k">Drift budget</span>
+        <span class="k">Drift / move</span>
         <input
           type="range"
-          :min="bounds.budget.min"
-          :max="bounds.budget.max"
-          :step="bounds.budget.step"
-          v-model.number="settings.budget"
+          :min="bounds.driftPerMove.min"
+          :max="bounds.driftPerMove.max"
+          :step="bounds.driftPerMove.step"
+          v-model.number="settings.driftPerMove"
         >
-        <span class="v">{{ settings.budget }}</span>
+        <span class="v">{{ settings.driftPerMove.toFixed(1) }}</span>
+      </label>
+
+      <label class="row">
+        <span class="k">Climb after</span>
+        <input
+          type="range"
+          :min="bounds.winsToAdvance.min"
+          :max="bounds.winsToAdvance.max"
+          :step="bounds.winsToAdvance.step"
+          v-model.number="settings.winsToAdvance"
+        >
+        <span class="v">{{ settings.winsToAdvance }}×</span>
+      </label>
+
+      <label class="row">
+        <span class="k">Drop after</span>
+        <input
+          type="range"
+          :min="bounds.lossesToDemote.min"
+          :max="bounds.lossesToDemote.max"
+          :step="bounds.lossesToDemote.step"
+          v-model.number="settings.lossesToDemote"
+        >
+        <span class="v">{{ settings.lossesToDemote }}×</span>
       </label>
 
       <label class="row">
@@ -89,30 +118,6 @@ function fmtNodes(n: number): string {
           v-model.number="settings.blunderCap"
         >
         <span class="v">{{ settings.blunderCap }}</span>
-      </label>
-
-      <label class="row">
-        <span class="k">Max plies</span>
-        <input
-          type="range"
-          :min="bounds.maxN.min"
-          :max="bounds.maxN.max"
-          :step="bounds.maxN.step"
-          v-model.number="settings.maxN"
-        >
-        <span class="v">{{ settings.maxN }}</span>
-      </label>
-
-      <label class="row">
-        <span class="k">Slip alert</span>
-        <input
-          type="range"
-          :min="bounds.slipThreshold.min"
-          :max="bounds.slipThreshold.max"
-          :step="bounds.slipThreshold.step"
-          v-model.number="settings.slipThreshold"
-        >
-        <span class="v">{{ settings.slipThreshold }}</span>
       </label>
 
       <div class="row range">
@@ -128,8 +133,14 @@ function fmtNodes(n: number): string {
         </div>
       </div>
 
-      <p class="note">Changes apply to your next run.</p>
-      <button class="reset" @click="reset">Reset to defaults</button>
+      <p class="note">
+        ≈ {{ budgetThisLevel }} win%-pts over level {{ level }} · {{ settings.winsToAdvance }} clean to
+        climb, {{ settings.lossesToDemote }} busts to drop · applies next run.
+      </p>
+      <div class="actions">
+        <button class="reset" @click="reset">Reset settings</button>
+        <button class="reset" @click="resetLadder" title="Back to level 1">Reset ladder</button>
+      </div>
     </div>
   </section>
 </template>
@@ -232,8 +243,11 @@ function fmtNodes(n: number): string {
   font-size: 0.72rem;
   color: #9ca3af;
 }
+.actions {
+  display: flex;
+  gap: 0.5rem;
+}
 .reset {
-  align-self: flex-start;
   font: inherit;
   font-size: 0.78rem;
   font-weight: 600;

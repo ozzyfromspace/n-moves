@@ -1,20 +1,17 @@
 <script setup lang="ts">
 // The orchestrator: it owns the board (one chess.js via useChessGame) and the
 // engine + scoring (useScoring), and sequences the drift-budget loop — prefetch
-// the player's position, score the move they play, flag a slip if they strayed,
-// play the engine's reply, and end the run on budget / blunder / max-n /
-// terminal. This is the real training screen; board-test and engine-test were
-// throwaway harnesses.
+// the player's position, score the move they play, play the engine's reply, and
+// end the run on budget / blunder / max-n / terminal. No mid-run hints: the engine's
+// move is never shown, so working out the better move stays the exercise. This is the
+// real training screen; board-test and engine-test were throwaway harnesses.
 import { parseUciMove } from '~/lib/uci'
 import { evalToWinProb } from '~/lib/winprob'
-import { uciToSan } from '~/lib/notation'
 import type { Move } from 'chess.js'
 import type { Color, Key } from 'chessground/types'
-import type { DrawShape } from 'chessground/draw'
-import type { ScoredMove } from '~/composables/useScoring'
 import type { PositionRecord } from '~/lib/positions'
 
-type Phase = 'booting' | 'player' | 'scoring' | 'slip' | 'opponent' | 'over'
+type Phase = 'booting' | 'player' | 'scoring' | 'opponent' | 'over'
 
 const OPPONENT_DELAY_MS = 300
 
@@ -31,28 +28,24 @@ const {
 } = useChessGame() // a real start is loaded by startRun once positions resolve
 
 const scoring = useScoring()
-const { searching, error, currentWinProb, drift, n, status, config, slipThreshold, nodes, over } =
-  scoring
+const { searching, error, currentWinProb, drift, n, status, config, nodes, over } = scoring
 
 const positions = usePositions()
 const { settings } = useSettings()
-const { allTimeBestN, record: recordRun, load: loadHistory } = useHistory()
+const { record: recordRun, load: loadHistory } = useHistory()
+const { level, streak, busts, record: recordLadder } = useLadder()
 
 const phase = ref<Phase>('booting')
 const humanColor = ref<Color>('white')
 // The start currently in play — held so "Retry" reloads the exact same position.
 const currentPosition = ref<PositionRecord | null>(null)
+// The survival target this run is played at (the ladder level at run start).
+const playedTarget = ref(level.value)
 const runError = ref<string | null>(null)
 
-// The current slip (player strayed ≥ slipThreshold): `played`/`best` are SAN —
-// the overlays render them as figurines — plus the loss. Drives the green
-// best-move arrow, the freeze-on-slip SlipOverlay, and — if it ended the run —
-// RunSummary's "final move" line. null when the move matched or was under threshold.
-const slip = ref<{ played: string; best: string; loss: number } | null>(null)
-const arrow = ref<DrawShape[]>([])
-
-// The engine reply held while a slip overlay is up; played once the user continues.
-const pendingReply = ref<string | null>(null)
+// Win%-pts a run-ending blunder cost — the only number the run-over screen shows about
+// the final move (never the engine's choice). null on a budget / terminal / won ending.
+const fatalLoss = ref<number | null>(null)
 // Player-perspective win% at each ply faced — the RunSummary sparkline series.
 const winHistory = ref<number[]>([])
 
@@ -73,7 +66,6 @@ const statusText = computed(() => {
     case 'booting': return error.value ? `Engine error: ${error.value}` : 'Booting engine…'
     case 'player': return 'Your move — play like the computer.'
     case 'scoring': return 'Scoring your move…'
-    case 'slip': return 'Study the better move, then continue.'
     case 'opponent': return 'Engine replies…'
     case 'over': return '' // RunSummary owns the run-over messaging
   }
@@ -89,31 +81,12 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-/**
- * Record a slip when the player strayed ≥ slipThreshold: store SAN for both the
- * played move and the engine's best (from the pre-move position) and draw the best
- * as a green arrow. Clears the slip otherwise.
- */
-function applySlip(s: ScoredMove, playedSan: string, fenBefore: string): void {
-  if (!s.matchedBest && s.loss >= slipThreshold.value) {
-    const b = parseUciMove(s.bestMove)
-    slip.value = {
-      played: playedSan,
-      best: uciToSan(fenBefore, s.bestMove) ?? s.bestMove,
-      loss: s.loss,
-    }
-    arrow.value = b ? [{ orig: b.from as Key, dest: b.to as Key, brush: 'green' }] : []
-  } else {
-    slip.value = null
-    arrow.value = []
-  }
-}
-
 function endRun(): void {
-  // Record genuine rule-based endings (terminal / budget / blunder / max-n), but not
-  // the backstop error path — there the run is still 'active' and only an engine
-  // failure stopped it. record() bumps the all-time best synchronously, so the
-  // run-over screen already shows a fresh record.
+  // Fold a genuine rule-based ending (terminal / budget / blunder / max-n) into the
+  // persisted history and the ladder. The backstop error path is skipped — there the
+  // run is still 'active' and only an engine failure stopped it, so it neither logs
+  // a run nor moves the ladder. Both update synchronously, so the run-over screen
+  // already reflects the new ladder level / streak.
   if (currentPosition.value && status.value !== 'active') {
     recordRun({
       n: n.value,
@@ -125,18 +98,23 @@ function endRun(): void {
       blunderCap: config.blunderCap,
       maxN: config.maxN,
     })
+    recordLadder(status.value, settings.winsToAdvance, settings.lossesToDemote) // win/bust streaks → climb/drop
   }
   phase.value = 'over'
 }
 
-/** Snapshot the live settings into the engine + run config for this run. Applied at
- *  run start (not reactively) so a mid-run tweak can't skew an in-flight comparison. */
+/** Snapshot the live settings + the ladder level into the engine + run config for
+ *  this run. Applied at run start (not reactively) so a mid-run tweak can't skew an
+ *  in-flight comparison, and the survive-target stays fixed for the whole run. */
 function applySettings(): void {
   nodes.value = settings.nodes
-  config.budget = settings.budget
   config.blunderCap = settings.blunderCap
-  config.maxN = settings.maxN
-  slipThreshold.value = settings.slipThreshold
+  // The survive-target is the ladder's current level; the drift budget scales with it
+  // (per-move allowance × level, rounded to a whole win%-pt), so each move's tolerance
+  // stays constant as you climb instead of long levels becoming impossible.
+  playedTarget.value = level.value
+  config.maxN = level.value
+  config.budget = Math.max(1, Math.round(settings.driftPerMove * level.value))
 }
 
 /** Load a position, reset the run, and prefetch the player's first move. */
@@ -144,9 +122,7 @@ async function startRun(fen0: string): Promise<void> {
   const myRun = ++runId
   applySettings()
   runError.value = null
-  slip.value = null
-  arrow.value = []
-  pendingReply.value = null
+  fatalLoss.value = null
   winHistory.value = []
   load(fen0)
   humanColor.value = turnColor.value // the side to move is the human
@@ -172,30 +148,28 @@ async function onMove(payload: { orig: Key; dest: Key }): Promise<void> {
 
   const playedUci = moveToUci(played)
   phase.value = 'scoring'
-  slip.value = null
-  arrow.value = []
 
   try {
     const scored = await scoring.scoreMove(fenBefore, playedUci)
     if (myRun !== runId) return
 
     winHistory.value.push(evalToWinProb(scored.best))
-    applySlip(scored, played.san, fenBefore)
     scoring.recordMove(scored.loss)
 
     // Terminal delivered by the player's own move (they mated/stalemated)?
     if (terminal.value) { scoring.recordTerminal(); return endRun() }
-    // Ended by drift budget / blunder cap / max-n?
-    if (over.value) return endRun()
 
-    // A displayed slip pauses the loop: freeze the board with the engine's move
-    // arrowed and wait for the player to study it (continueFromSlip resumes).
-    if (slip.value) {
-      pendingReply.value = scored.reply
-      phase.value = 'slip'
-      return
+    // Run ended on this move (a win, a blunder, or the drift budget spent)? End it
+    // WITHOUT revealing the engine's move — figuring out the better move is the whole
+    // exercise. Keep only a blunder's magnitude for the summary (a budget bust is
+    // cumulative, not one bad move); the board stays visible above it to study.
+    if (over.value) {
+      fatalLoss.value = status.value === 'blunder' ? scored.loss : null
+      return endRun()
     }
 
+    // Survived — no hint, no pause. The engine replies and the loop rolls straight on;
+    // the drift gauge and win% bar carry the only feedback.
     await playOpponent(scored.reply, myRun)
   } catch (e) {
     if (myRun !== runId) return
@@ -238,23 +212,6 @@ async function playOpponent(suggestedReply: string | null, myRun: number): Promi
 
   phase.value = 'player'
   scoring.prefetch(fen.value).catch(() => {}) // prefetch the new position
-}
-
-/** Resume the loop after the player dismisses the slip overlay. */
-async function continueFromSlip(): Promise<void> {
-  if (phase.value !== 'slip') return
-  const myRun = runId
-  const reply = pendingReply.value
-  pendingReply.value = null
-  slip.value = null
-  arrow.value = []
-  try {
-    await playOpponent(reply, myRun)
-  } catch (e) {
-    if (myRun !== runId) return
-    runError.value = (e as Error).message
-    phase.value = 'over'
-  }
 }
 
 /** Draw a fresh start (bucket-balanced, honouring the eval-range filter) and run it. */
@@ -313,31 +270,7 @@ onBeforeUnmount(() => { runId++ })
             :last-move="lastMove"
             :check="check"
             :view-only="locked"
-            :auto-shapes="arrow"
             @move="onMove"
-          />
-
-          <SlipOverlay
-            v-if="phase === 'slip' && slip"
-            :played="slip.played"
-            :best="slip.best"
-            :loss="slip.loss"
-            @continue="continueFromSlip"
-          />
-
-          <RunSummary
-            v-if="phase === 'over'"
-            :status="status"
-            :n="n"
-            :best-n="allTimeBestN"
-            :drift="drift"
-            :budget="config.budget"
-            :blunder-cap="config.blunderCap"
-            :win-history="winHistory"
-            :fatal-slip="slip"
-            :run-error="runError"
-            @next="nextPosition"
-            @retry="retryPosition"
           />
         </div>
 
@@ -345,6 +278,28 @@ onBeforeUnmount(() => { runId++ })
           <span v-if="searching" class="spinner" />
           {{ statusText }}
         </p>
+
+        <!-- Below the board, never over it — the final position stays visible to study
+             on every ending (win, blunder, drift, terminal). -->
+        <RunSummary
+          v-if="phase === 'over'"
+          :status="status"
+          :n="n"
+          :target="playedTarget"
+          :level="level"
+          :streak="streak"
+          :busts="busts"
+          :wins-to-advance="settings.winsToAdvance"
+          :losses-to-demote="settings.lossesToDemote"
+          :drift="drift"
+          :budget="config.budget"
+          :blunder-cap="config.blunderCap"
+          :win-history="winHistory"
+          :fatal-loss="fatalLoss"
+          :run-error="runError"
+          @next="nextPosition"
+          @retry="retryPosition"
+        />
       </div>
 
       <aside class="side">
@@ -353,7 +308,12 @@ onBeforeUnmount(() => { runId++ })
           :drift="drift"
           :budget="config.budget"
           :n="n"
-          :best-n="allTimeBestN"
+          :target="playedTarget"
+          :level="level"
+          :streak="streak"
+          :busts="busts"
+          :wins-to-advance="settings.winsToAdvance"
+          :losses-to-demote="settings.lossesToDemote"
           :status="status"
         />
         <SettingsPanel />

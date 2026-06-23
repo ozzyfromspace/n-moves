@@ -12,24 +12,24 @@ import { CP_KEEP_LIMIT } from '~/lib/positions'
 export interface Settings {
   /** Fixed engine search work per move (nodes) — strength ↔ latency. */
   nodes: number
-  /** Cumulative win%-pts of drift a run absorbs before it ends. */
-  budget: number
+  /** Win%-pts of erosion allowed per move on average; run budget = this × the level. */
+  driftPerMove: number
+  /** Clean runs in a row needed at a level before it climbs (the consistency gate). */
+  winsToAdvance: number
+  /** Busted runs in a row at a level before it drops one (failing has teeth). */
+  lossesToDemote: number
   /** A single move losing ≥ this many win%-pts ends the run. */
   blunderCap: number
-  /** Plies survived to bank a run as a success. */
-  maxN: number
-  /** Win%-pts lost on one move before the slip overlay shows (display only). */
-  slipThreshold: number
   /** Eval-range filter in side-to-move cp; null = draw from every bucket. */
   evalRange: [number, number] | null
 }
 
 export const SETTINGS_DEFAULTS: Settings = {
   nodes: 800_000,
-  budget: DEFAULT_RUN_CONFIG.budget,
+  driftPerMove: 1.5,
+  winsToAdvance: 3,
+  lossesToDemote: 3,
   blunderCap: DEFAULT_RUN_CONFIG.blunderCap,
-  maxN: DEFAULT_RUN_CONFIG.maxN,
-  slipThreshold: 6,
   evalRange: null,
 }
 
@@ -42,15 +42,18 @@ interface Bound {
 
 /** Inclusive bounds + step for each numeric knob. The UI sliders and the clamp share these. */
 export const SETTINGS_BOUNDS: Record<
-  'nodes' | 'budget' | 'blunderCap' | 'maxN' | 'slipThreshold',
+  'nodes' | 'driftPerMove' | 'winsToAdvance' | 'lossesToDemote' | 'blunderCap',
   Bound
 > = {
   // 200k is still far superhuman; 3M is the slow-but-strong end (see plan).
   nodes: { min: 200_000, max: 3_000_000, step: 100_000 },
-  budget: { min: 20, max: 400, step: 5 },
+  // Win%-pts you may shed per move on average; × the level = the run's drift budget.
+  driftPerMove: { min: 0.5, max: 6, step: 0.5 },
+  // "Several times in a row" — how consistent you must be before the level climbs.
+  winsToAdvance: { min: 1, max: 10, step: 1 },
+  // Busts in a row before you drop a level — how unforgiving a cold streak is.
+  lossesToDemote: { min: 1, max: 10, step: 1 },
   blunderCap: { min: 5, max: 100, step: 1 },
-  maxN: { min: 10, max: 200, step: 5 },
-  slipThreshold: { min: 1, max: 50, step: 1 },
 }
 
 /** Coerce one value into [min, max], snapped to `step`, falling back when it's junk. */
@@ -78,10 +81,10 @@ export function clampSettings(raw: Partial<Settings> | Record<string, unknown>):
   const r = raw as Record<string, unknown>
   return {
     nodes: clampNum(r.nodes, SETTINGS_BOUNDS.nodes, SETTINGS_DEFAULTS.nodes),
-    budget: clampNum(r.budget, SETTINGS_BOUNDS.budget, SETTINGS_DEFAULTS.budget),
+    driftPerMove: clampNum(r.driftPerMove, SETTINGS_BOUNDS.driftPerMove, SETTINGS_DEFAULTS.driftPerMove),
+    winsToAdvance: clampNum(r.winsToAdvance, SETTINGS_BOUNDS.winsToAdvance, SETTINGS_DEFAULTS.winsToAdvance),
+    lossesToDemote: clampNum(r.lossesToDemote, SETTINGS_BOUNDS.lossesToDemote, SETTINGS_DEFAULTS.lossesToDemote),
     blunderCap: clampNum(r.blunderCap, SETTINGS_BOUNDS.blunderCap, SETTINGS_DEFAULTS.blunderCap),
-    maxN: clampNum(r.maxN, SETTINGS_BOUNDS.maxN, SETTINGS_DEFAULTS.maxN),
-    slipThreshold: clampNum(r.slipThreshold, SETTINGS_BOUNDS.slipThreshold, SETTINGS_DEFAULTS.slipThreshold),
     evalRange: clampRange(r.evalRange),
   }
 }

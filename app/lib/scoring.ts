@@ -32,10 +32,14 @@ export interface RunConfig {
   maxN: number
 }
 
+// Runtime seed only: every field is overwritten per-run from the user's settings and
+// the ladder (maxN = the level, budget = round(drift-per-move × the level)), so these
+// just seed the reactive config before the first run. Values mirror the level-1 start:
+// one strong move, ~1.5 win%-pts of slack (rounded to 2).
 export const DEFAULT_RUN_CONFIG: RunConfig = {
-  budget: 120,
-  blunderCap: 30,
-  maxN: 60,
+  budget: 2,
+  blunderCap: 8,
+  maxN: 1,
 }
 
 export interface RunState {

@@ -28,7 +28,7 @@ export interface ScoredMove {
   best: EvalScore
   /** Eval after the player's actual move (E_played), same side and horizon. */
   played: EvalScore
-  /** Engine's best move B in long-algebraic (drives the slip arrow). */
+  /** Engine's best move B in long-algebraic. */
   bestMove: string
   /** True when the player's move WAS B — no second search ran, loss is 0. */
   matchedBest: boolean
@@ -49,12 +49,10 @@ function toEval(a: Analysis): EvalScore {
 export function useScoring() {
   const engine = useEngine()
 
-  // Tunables (editable from settings in Task #7). NODES is the fixed, hardware-
-  // independent search work; slipThreshold is a pure display cue (NOT a run-end
-  // condition, so it stays out of RunConfig).
+  // Tunables (editable from settings). NODES is the fixed, hardware-independent search
+  // work; the run-end thresholds (budget / blunder cap / maxN) all live in `config`.
   const nodes = ref(800_000)
   const config = reactive<RunConfig>({ ...DEFAULT_RUN_CONFIG })
-  const slipThreshold = ref(6)
 
   // The pure run state machine, made reactive.
   const run = ref<RunState>(initRun())
@@ -176,7 +174,6 @@ export function useScoring() {
     // tunables
     nodes,
     config,
-    slipThreshold,
     // run state
     run,
     n,

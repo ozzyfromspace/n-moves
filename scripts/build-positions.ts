@@ -2,14 +2,22 @@
 // public/positions/positions.json. Run rarely; the app ships with the committed
 // positions.sample.json so it never depends on this having run.
 //
-// Usage (needs Node ≥ 22.6 for TypeScript execution; native zstd needs ≥ 22.15):
-//   pnpm build:positions
-//   pnpm build:positions -- --per-bucket 800 --max-lines 3000000
-//   pnpm build:positions -- --source ./lichess_db_eval.jsonl   (pre-decompressed)
+// Usage — runs under Node's TypeScript stripping (Node ≥ 22.6; ≥ 23 runs .ts directly).
+// Invoke node directly so the args reach the script — `pnpm run` forwards a literal
+// `--` that parseArgs then rejects as a positional:
+//   node --experimental-strip-types scripts/build-positions.ts --per-bucket 800 --max-lines 3000000
 //
-// The dump (https://database.lichess.org) is NDJSON+zstd, ~17 GB compressed. We
-// never download it whole: stream → zstd-decompress → parse → reservoir-sample each
-// eval bucket → abort the connection at --max-lines. A zstd prefix decodes fine.
+// Decompression: this uses node's native zstd, but some Node builds (seen on 25.x)
+// silently emit zero bytes. The reliable path is the zstd CLI feeding a pre-decompressed
+// --source — a truncated prefix of the dump decodes fine, which also bounds the download:
+//   curl -s -r 0-80000000 https://database.lichess.org/lichess_db_eval.jsonl.zst -o eval.zst
+//   zstd -d -c eval.zst > eval.jsonl          # "premature end" at the tail is expected
+//   node --experimental-strip-types scripts/build-positions.ts --source eval.jsonl --per-bucket 800
+//
+// The dump (https://database.lichess.org) is NDJSON+zstd, ~21 GB compressed. We never
+// download it whole: stream → decompress → parse → reservoir-sample each eval bucket →
+// stop at --max-lines (or the prefix's end). The reservoir reshuffles every run, so a
+// re-run — or a different curl byte-range — refreshes the sampled set.
 //
 // Three gotchas handled (see lib/positions): dump cp is WHITE-relative (→ side-to-
 // move for bucketing), dump FENs may carry only 4 fields (→ pad to 6), and each
@@ -91,7 +99,12 @@ function deepestEval(row: DumpRow): DumpRow['evals'] extends Array<infer E> ? E 
 class Reservoirs {
   private readonly rows = new Map<Bucket, PositionRecord[]>()
   private readonly seen = new Map<Bucket, number>()
-  constructor(private readonly k: number) {}
+  private readonly k: number
+  // Plain field assignment, not a constructor parameter property — Node's strip-only
+  // TypeScript mode (the runner) can't emit the implicit `this.k = k` a param property needs.
+  constructor(k: number) {
+    this.k = k
+  }
 
   add(bucket: Bucket, rec: PositionRecord): void {
     let r = this.rows.get(bucket)
@@ -192,6 +205,14 @@ async function main(): Promise<void> {
     log(`  ${b.padEnd(10)} ${rows.length}/${perBucket} kept  (seen ${reservoirs.seenIn(b)})${flag}`)
   }
 
+  // Never overwrite a good set with an empty one: a silent zero (e.g. native zstd
+  // emitting nothing) must fail loudly, not clobber positions.json with `[]`.
+  if (out.length === 0) {
+    throw new Error(
+      `sampled 0 positions from ${scanned} lines — source empty or undecodable. ` +
+        'If you streamed the .zst URL, use the zstd CLI + --source (see the header).',
+    )
+  }
   mkdirSync(dirname(outPath), { recursive: true })
   writeFileSync(outPath, `${JSON.stringify(out)}\n`)
   log(`scanned ${scanned} lines total`)

@@ -12,12 +12,18 @@ describe('clampSettings', () => {
   })
 
   it('clamps numbers into their bounds', () => {
-    const s = clampSettings({ nodes: 50_000, budget: 1000, blunderCap: 2, maxN: 7, slipThreshold: 99 })
+    const s = clampSettings({
+      nodes: 50_000,
+      driftPerMove: 99,
+      winsToAdvance: 99,
+      lossesToDemote: 99,
+      blunderCap: 2,
+    })
     expect(s.nodes).toBe(200_000) // below min → min
-    expect(s.budget).toBe(400) // above max → max
+    expect(s.driftPerMove).toBe(6) // above max → max
+    expect(s.winsToAdvance).toBe(10) // above max → max
+    expect(s.lossesToDemote).toBe(10) // above max → max
     expect(s.blunderCap).toBe(5) // below min → min
-    expect(s.maxN).toBe(10) // below min → min
-    expect(s.slipThreshold).toBe(50) // above max → max
   })
 
   it('snaps nodes to the 100k step', () => {
@@ -25,9 +31,17 @@ describe('clampSettings', () => {
     expect(clampSettings({ nodes: 860_000 }).nodes).toBe(900_000)
   })
 
+  it('snaps drift-per-move to the 0.5 step and floors it', () => {
+    expect(clampSettings({ driftPerMove: 1.7 }).driftPerMove).toBe(1.5)
+    expect(clampSettings({ driftPerMove: 1.8 }).driftPerMove).toBe(2)
+    expect(clampSettings({ driftPerMove: 0.1 }).driftPerMove).toBe(0.5)
+  })
+
   it('falls back to the default for non-finite or wrong-typed values', () => {
     expect(clampSettings({ nodes: 'lots' as unknown as number }).nodes).toBe(SETTINGS_DEFAULTS.nodes)
-    expect(clampSettings({ budget: Number.NaN }).budget).toBe(SETTINGS_DEFAULTS.budget)
+    expect(clampSettings({ driftPerMove: Number.NaN }).driftPerMove).toBe(SETTINGS_DEFAULTS.driftPerMove)
+    expect(clampSettings({ winsToAdvance: 0 }).winsToAdvance).toBe(1) // below min → min
+    expect(clampSettings({ lossesToDemote: 0 }).lossesToDemote).toBe(1) // below min → min
   })
 
   it('orders and clamps the eval range, nulling a full-spectrum span', () => {
@@ -44,7 +58,13 @@ describe('clampSettings', () => {
 
 describe('parse / serialize', () => {
   it('round-trips a clamped settings object', () => {
-    const s = clampSettings({ nodes: 1_200_000, budget: 80, evalRange: [-150, 50] })
+    const s = clampSettings({
+      nodes: 1_200_000,
+      driftPerMove: 2,
+      winsToAdvance: 5,
+      lossesToDemote: 4,
+      evalRange: [-150, 50],
+    })
     expect(parseSettings(serializeSettings(s))).toEqual(s)
   })
 

@@ -119,6 +119,8 @@ export interface PickOptions {
   range?: [number, number]
   /** Draw evenly across populated buckets rather than by raw frequency. Default true. */
   balanced?: boolean
+  /** FENs to skip — the recently-served window — but only while a fresh start remains. */
+  exclude?: Set<string>
 }
 
 /**
@@ -134,9 +136,14 @@ export function pickPosition(
   opts: PickOptions = {},
   rnd: () => number = Math.random,
 ): PositionRecord | null {
-  const pool = opts.range
+  let pool = opts.range
     ? records.filter(r => r.cpStm >= opts.range![0] && r.cpStm <= opts.range![1])
     : records
+  // Drop recently-served starts, but only when that still leaves something to draw.
+  if (opts.exclude && opts.exclude.size > 0) {
+    const fresh = pool.filter(r => !opts.exclude!.has(r.fen))
+    if (fresh.length > 0) pool = fresh
+  }
   if (pool.length === 0) return null
 
   const flat = (rows: PositionRecord[]) => rows[Math.floor(rnd() * rows.length)]!

@@ -26,9 +26,9 @@ const props = withDefaults(
     movableColor?: Color | 'both'
     lastMove?: [Key, Key]
     check?: boolean
-    /** Hard input lock (engine thinking / frozen slip). */
+    /** Hard input lock (engine thinking / run over). */
     viewOnly?: boolean
-    /** Engine annotations (e.g. the slip arrow); cleared by passing []. */
+    /** Board annotations (analysis arrows etc.); cleared by passing []. */
     autoShapes?: DrawShape[]
   }>(),
   {
