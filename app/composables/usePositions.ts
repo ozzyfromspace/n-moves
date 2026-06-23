@@ -51,6 +51,11 @@ export function usePositions() {
   const records = shallowRef<PositionRecord[]>([])
   const ready = ref(false)
   const error = ref<string | null>(null)
+  // True when the full set couldn't be fetched and we fell back to the committed
+  // sample (~11 starts). In production that means /positions/positions.json isn't
+  // deployed; the app still runs, but on a tiny pool — so the trainer surfaces it
+  // instead of letting a thin deploy quietly masquerade as the full library.
+  const usingSample = ref(false)
   const count = computed(() => records.value.length)
 
   // Recently-served FENs (newest last). pick() avoids these so the same start can't
@@ -62,12 +67,23 @@ export function usePositions() {
   async function load(): Promise<void> {
     ready.value = false
     error.value = null
+    usingSample.value = false
     try {
       let raw: PositionRecord[]
       try {
         raw = await fetchSet(FULL_URL)
-      } catch {
-        raw = await fetchSet(SAMPLE_URL) // not built yet (or dev server needs a restart)
+      } catch (fullErr) {
+        // Full set missing (not built yet, dev server needs a restart, or — in
+        // production — positions.json isn't deployed). Fall back to the sample,
+        // but say so loudly: a silent fallback reads as "the app works" while
+        // quietly serving a handful of starts on repeat.
+        raw = await fetchSet(SAMPLE_URL)
+        usingSample.value = true
+        console.warn(
+          `[n-moves] Full position set unavailable (${(fullErr as Error).message}). ` +
+            `Falling back to the ${raw.length}-position sample, so starts will repeat. ` +
+            `In production this means /positions/positions.json isn't deployed — redeploy to ship it.`,
+        )
       }
       records.value = raw.map(clean)
       ready.value = true
@@ -89,5 +105,5 @@ export function usePositions() {
     return pos
   }
 
-  return { records, ready, error, count, load, pick }
+  return { records, ready, error, usingSample, count, load, pick }
 }

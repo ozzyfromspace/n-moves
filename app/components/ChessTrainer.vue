@@ -31,6 +31,9 @@ const scoring = useScoring()
 const { searching, error, currentWinProb, drift, n, status, config, nodes, over } = scoring
 
 const positions = usePositions()
+// Destructured for the template (top-level refs auto-unwrap there): the trainer
+// shows a notice when only the sample set loaded, so a thin deploy is visible.
+const { usingSample: onSampleSet, count: positionCount } = positions
 const { settings } = useSettings()
 const { record: recordRun, load: loadHistory } = useHistory()
 const { level, streak, busts, record: recordLadder } = useLadder()
@@ -258,6 +261,11 @@ onBeforeUnmount(() => { runId++ })
       <h1 class="tagline">Don't try to win.<br><span class="hl">Try not to lose ground.</span></h1>
     </header>
 
+    <p v-if="onSampleSet" class="sample-warning" role="status">
+      ⚠ Running on the sample set — only {{ positionCount }} starts, so positions will repeat.
+      <span class="hint">The full library didn't load. If this is the live site, redeploy so <code>positions.json</code> ships.</span>
+    </p>
+
     <div class="layout">
       <div class="board-col">
         <div class="board-frame">
@@ -355,6 +363,28 @@ onBeforeUnmount(() => { runId++ })
 .tagline .hl {
   color: var(--neon-cyan);
   text-shadow: 0 0 18px rgba(33, 243, 255, 0.4);
+}
+.sample-warning {
+  margin: 0 0 1.5rem;
+  padding: 0.7rem 0.95rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--bad) 50%, var(--hairline));
+  background: color-mix(in srgb, var(--bad) 12%, var(--surface));
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+.sample-warning .hint {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+.sample-warning code {
+  padding: 0.05em 0.3em;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+  font-size: 0.95em;
 }
 .layout {
   display: flex;
