@@ -8,9 +8,11 @@
 import { parseUciMove } from '~/lib/uci'
 import { evalToWinProb } from '~/lib/winprob'
 import { buildTimeline } from '~/lib/timeline'
+import { toFigurine, uciLineToSan } from '~/lib/notation'
 import { ACTIVE_RUN_VERSION, type ActiveRun } from '~/lib/activeRun'
 import type { Move } from 'chess.js'
 import type { Color, Dests, Key } from 'chessground/types'
+import type { DrawShape } from 'chessground/draw'
 import type { PositionRecord } from '~/lib/positions'
 
 type Phase = 'booting' | 'player' | 'scoring' | 'opponent' | 'over'
@@ -69,6 +71,12 @@ const moves = ref<string[]>([])
 // Which past frame the scrubber shows: null = the live tip; a number = that frame
 // index (0 = the start). The live game (useChessGame) is never touched — only the view.
 const viewPly = ref<number | null>(null)
+// On a blunder failure: the engine's punishing line from the position AFTER your move —
+// a red arrow on the board (shape) + the line for the summary. It shows WHY your move
+// loses; it never reveals the engine's preferred move (this line starts from your move,
+// not from the choice you should have made), so the no-hints rule holds. null otherwise.
+const refutation = ref<{ shape: DrawShape; line: string[] } | null>(null)
+const refutationPending = ref(false)
 
 // Invalidates in-flight async continuations when the position changes underfoot
 // (e.g. the user hits "Next position" mid-search or mid-reply).
@@ -117,6 +125,14 @@ const view = computed(() => {
     viewOnly: true,
   }
 })
+
+// The refutation arrow — only on the frozen final position (run over, viewing live), never
+// while scrubbing the past, since the arrow is a move in THIS position, not an earlier one.
+const boardShapes = computed<DrawShape[]>(() =>
+  phase.value === 'over' && viewPly.value === null && refutation.value
+    ? [refutation.value.shape]
+    : [],
+)
 
 /** Step the scrubber by `delta` plies, clamping; stepping onto the tip returns to live. */
 function scrubBy(delta: number): void {
@@ -205,6 +221,49 @@ function endRun(): void {
   phase.value = 'over'
 }
 
+// How many plies of the punishing line to surface — enough to show the point, not a dump.
+const REFUTATION_PLIES = 6
+
+/**
+ * After a blunder ends the run, surface WHY the played move loses: search the position the
+ * move led to (`fenP`, opponent to move) and show the engine's best continuation — a red
+ * arrow for the punishing reply + the line in the summary. This is the refutation of YOUR
+ * move, NOT the engine's preferred move (the line begins from the move you played), so the
+ * no-hints rule holds: you still have to work out the move that avoids it. Guarded by runId
+ * so a Next/Restart mid-search discards. An engine hiccup just yields no refutation.
+ */
+async function revealRefutation(fenP: string, myRun: number): Promise<void> {
+  refutation.value = null
+  refutationPending.value = true
+  try {
+    const analysis = await scoring.searchBest(fenP)
+    if (myRun !== runId || !settings.explainBlunders) return // superseded or toggled off mid-search
+    const first = analysis.pv[0] ? parseUciMove(analysis.pv[0]) : null
+    if (!first) return // terminal / no line to show
+    const line = uciLineToSan(fenP, analysis.pv.slice(0, REFUTATION_PLIES)).map(toFigurine)
+    if (analysis.pv.length > REFUTATION_PLIES) line.push('…')
+    refutation.value = { shape: { orig: first.from as Key, dest: first.to as Key, brush: 'red' }, line }
+  } catch {
+    // engine failure — leave the refutation empty; the run still failed.
+  } finally {
+    if (myRun === runId) refutationPending.value = false
+  }
+}
+
+// Make the pure-struggle toggle live: turning it off hides any refutation on screen;
+// turning it back on while a blunder is showing re-derives it for the current position.
+watch(
+  () => settings.explainBlunders,
+  (on) => {
+    if (!on) {
+      refutation.value = null
+      refutationPending.value = false
+    } else if (phase.value === 'over' && status.value === 'blunder' && !refutation.value) {
+      void revealRefutation(fen.value, runId)
+    }
+  },
+)
+
 /** Snapshot the live settings + the ladder level into the engine + run config for
  *  this run. Applied at run start (not reactively) so a mid-run tweak can't skew an
  *  in-flight comparison, and the survive-target stays fixed for the whole run. */
@@ -231,6 +290,8 @@ async function startRun(fen0: string): Promise<void> {
   winHistory.value = []
   moves.value = []
   viewPly.value = null // a fresh run starts at the live tip, never mid-scrub
+  refutation.value = null
+  refutationPending.value = false
   load(fen0)
   humanColor.value = turnColor.value // the side to move is the human
   phase.value = 'scoring' // brief: reset clears the TT, then we prefetch
@@ -276,7 +337,12 @@ async function onMove(payload: { orig: Key; dest: Key }): Promise<void> {
     // cumulative, not one bad move); the board stays visible above it to study.
     if (over.value) {
       fatalLoss.value = status.value === 'blunder' ? scored.loss : null
-      return endRun()
+      endRun()
+      // On a blunder, show why that move loses — the opponent's punishing line from the
+      // position it led to (fen.value, after your move), never the move you should've played.
+      // Gated by the pure-struggle setting (off → no post-mortem).
+      if (status.value === 'blunder' && settings.explainBlunders) void revealRefutation(fen.value, myRun)
+      return
     }
 
     // Survived — no hint, no pause. The engine replies and the loop rolls straight on;
@@ -385,6 +451,8 @@ function restoreRun(s: ActiveRun): void {
   runError.value = s.runError
   moves.value = [...s.moves]
   viewPly.value = null
+  refutation.value = null
+  refutationPending.value = false
 
   scoring.restore({ run: s.run, nodes: s.nodes, config: s.config, currentEval: s.currentEval })
 
@@ -397,6 +465,9 @@ function restoreRun(s: ActiveRun): void {
 
   if (s.phase === 'over') {
     phase.value = 'over'
+    // Re-derive the refutation on a restored blunder (it isn't persisted): the rebuilt
+    // board IS the position the blunder led to — a fatal move ends before the reply.
+    if (s.run.status === 'blunder') void revealRefutation(fen.value, runId)
     return
   }
   phase.value = 'player'
@@ -470,6 +541,7 @@ onBeforeUnmount(() => {
               :last-move="view.lastMove"
               :check="view.check"
               :view-only="view.viewOnly"
+              :auto-shapes="boardShapes"
               @move="onMove"
             />
           </div>
@@ -514,6 +586,8 @@ onBeforeUnmount(() => {
           :fatal-loss="fatalLoss"
           :run-error="runError"
           :locked="bankedAtStart"
+          :refutation="refutation?.line ?? null"
+          :refutation-pending="refutationPending"
         />
       </div>
 

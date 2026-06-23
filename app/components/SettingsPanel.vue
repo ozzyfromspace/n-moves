@@ -1,11 +1,12 @@
 <script setup lang="ts">
 // Collapsible sidebar settings: the run tunables (search work, drift-per-move, the
-// clean-runs-to-climb and busts-to-drop thresholds, blunder cap) and the eval-range
-// filter. Bound straight to the shared reactive settings (useSettings), so every
-// change persists to localStorage via that composable. Changes take effect on the
-// NEXT run — ChessTrainer snapshots the settings + level when a run starts, so a mid-run
-// tweak can't skew an in-flight comparison. Sliders are clamped to lib/settings' bounds;
-// the eval filter is two bucket dropdowns written as a cp range.
+// clean-runs-to-climb and busts-to-drop thresholds, blunder cap), the eval-range filter,
+// and the "explain blunders" toggle. Bound straight to the shared reactive settings
+// (useSettings), so every change persists to localStorage via that composable. The run
+// tunables take effect on the NEXT run — ChessTrainer snapshots settings + level at run
+// start, so a mid-run tweak can't skew an in-flight comparison; the explain-blunders
+// toggle is the exception and applies live (it only affects the post-run readout).
+// Sliders are clamped to lib/settings' bounds; the eval filter is two bucket dropdowns.
 import { SETTINGS_BOUNDS } from '~/lib/settings'
 import {
   BUCKET_KEYS,
@@ -123,6 +124,18 @@ function fmtNodes(n: number): string {
           v-model.number="settings.blunderCap"
         >
         <span class="v">{{ settings.blunderCap }}</span>
+      </label>
+
+      <label class="row toggle">
+        <input type="checkbox" v-model="settings.explainBlunders">
+        <span class="toggle-k">
+          Explain why a blunder loses
+          <span class="toggle-sub">{{
+            settings.explainBlunders
+              ? 'shows the refutation on a fail — never the move you should’ve played'
+              : 'pure struggle — no post-mortem'
+          }}</span>
+        </span>
       </label>
 
       <div class="row range">
@@ -272,6 +285,38 @@ function fmtNodes(n: number): string {
 }
 .range {
   grid-template-columns: 5.4rem 1fr;
+}
+.row.toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  cursor: pointer;
+}
+.row.toggle input[type='checkbox'] {
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0.1rem;
+  accent-color: var(--neon-cyan);
+  cursor: pointer;
+}
+.toggle-k {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  line-height: 1.25;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.toggle-sub {
+  font-size: 0.66rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-dim);
 }
 .selects {
   display: flex;

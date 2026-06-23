@@ -42,3 +42,28 @@ export function uciToSan(fen: string, uci: string): string | null {
 export function toFigurine(san: string): string {
   return san.replace(/[KQRBN]/g, c => FIGURINE[c]!)
 }
+
+/**
+ * Play `uciLine` (long-algebraic plies) from `startFen` and return the SAN for each
+ * ply, stopping at the first illegal/malformed move. Used to render an engine line —
+ * e.g. the refutation of a losing move (the opponent's punishing continuation) — as
+ * readable notation. Pure: a throwaway chess.js, never the live game.
+ */
+export function uciLineToSan(startFen: string, uciLine: string[]): string[] {
+  const game = new Chess(startFen)
+  const out: string[] = []
+  for (const uci of uciLine) {
+    try {
+      out.push(
+        game.move({
+          from: uci.slice(0, 2),
+          to: uci.slice(2, 4),
+          promotion: uci.slice(4, 5) || undefined,
+        }).san,
+      )
+    } catch {
+      break
+    }
+  }
+  return out
+}
