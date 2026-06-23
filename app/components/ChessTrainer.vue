@@ -47,6 +47,10 @@ const humanColor = ref<Color>('white')
 const currentPosition = ref<PositionRecord | null>(null)
 // The survival target this run is played at (the ladder level at run start).
 const playedTarget = ref(level.value)
+// True once the current position has been won and banked. Persisted, preserved across
+// "Restart", cleared by "Next" — while set, replays change neither the ladder nor
+// history, so experimenting on a position you've already cleared can't demote you.
+const positionBanked = ref(false)
 const runError = ref<string | null>(null)
 
 // Win%-pts a run-ending blunder cost — the only number the run-over screen shows about
@@ -149,6 +153,7 @@ function snapshot(savePhase: 'player' | 'over'): ActiveRun | null {
     winHistory: [...winHistory.value],
     fatalLoss: fatalLoss.value,
     playedTarget: playedTarget.value,
+    banked: positionBanked.value,
     nodes: nodes.value,
     config: { budget: config.budget, blunderCap: config.blunderCap, maxN: config.maxN },
     currentEval: live ? { ...live } : null,
@@ -172,18 +177,23 @@ function endRun(): void {
   // re-searches, recovering from the transient failure. Both update synchronously, so
   // the run-over screen already reflects the new ladder level / streak.
   if (currentPosition.value && status.value !== 'active') {
-    recordRun({
-      n: n.value,
-      drift: drift.value,
-      status: status.value,
-      startFen: currentPosition.value.fen,
-      nodes: nodes.value,
-      budget: config.budget,
-      blunderCap: config.blunderCap,
-      maxN: config.maxN,
-    })
-    recordLadder(status.value, settings.winsToAdvance, settings.lossesToDemote) // win/bust streaks → climb/drop
-    persist('over') // resume the summary on refresh; never re-records (restore skips endRun)
+    // A banked position is locked: you've already won it, so replays (Restart) change
+    // neither the ladder nor history until you move on — experimenting can't demote you.
+    if (!positionBanked.value) {
+      recordRun({
+        n: n.value,
+        drift: drift.value,
+        status: status.value,
+        startFen: currentPosition.value.fen,
+        nodes: nodes.value,
+        budget: config.budget,
+        blunderCap: config.blunderCap,
+        maxN: config.maxN,
+      })
+      recordLadder(status.value, settings.winsToAdvance, settings.lossesToDemote) // win/bust streaks → climb/drop
+      if (status.value === 'max-n') positionBanked.value = true // a win banks this position
+    }
+    persist('over') // resume the summary on refresh (locked replays too); never re-records
   }
   phase.value = 'over'
 }
@@ -320,6 +330,7 @@ async function nextPosition(): Promise<void> {
     phase.value = 'over'
     return
   }
+  positionBanked.value = false // a fresh deal is ladder-eligible again (Restart keeps the bank)
   currentPosition.value = pos
   await startRun(pos.fen)
 }
@@ -342,6 +353,7 @@ function restoreRun(s: ActiveRun): void {
   currentPosition.value = s.position
   humanColor.value = s.humanColor
   playedTarget.value = s.playedTarget
+  positionBanked.value = s.banked
   winHistory.value = [...s.winHistory]
   fatalLoss.value = s.fatalLoss
   runError.value = s.runError
@@ -475,6 +487,7 @@ onBeforeUnmount(() => {
           :win-history="winHistory"
           :fatal-loss="fatalLoss"
           :run-error="runError"
+          :locked="positionBanked"
         />
       </div>
 

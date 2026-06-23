@@ -10,6 +10,7 @@ const valid = (): ActiveRun => ({
   winHistory: [55, 52],
   fatalLoss: null,
   playedTarget: 4,
+  banked: false,
   nodes: 800_000,
   config: { budget: 6, blunderCap: 8, maxN: 4 },
   currentEval: { cp: 20 },
@@ -51,6 +52,15 @@ describe('isValidActiveRun', () => {
 
   it('rejects an unknown phase', () => {
     expect(isValidActiveRun({ ...valid(), phase: 'scoring' })).toBe(false)
+  })
+
+  it('rejects a non-boolean banked flag', () => {
+    expect(isValidActiveRun({ ...valid(), banked: 'yes' })).toBe(false)
+    expect(isValidActiveRun({ ...valid(), banked: undefined })).toBe(false)
+  })
+
+  it('accepts a banked (won, locked) run', () => {
+    expect(isValidActiveRun({ ...valid(), banked: true })).toBe(true)
   })
 
   it('accepts a finished run', () => {
