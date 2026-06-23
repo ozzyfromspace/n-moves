@@ -164,6 +164,30 @@ export function useScoring() {
     await engine.newGame()
   }
 
+  /**
+   * Re-seat the run state from a persisted snapshot (a page refresh resuming a run
+   * in progress). Restores the state machine, the fixed search work, the end
+   * thresholds, and the live eval so the win% bar is right immediately — WITHOUT
+   * touching history or the ladder (the snapshot is mid-run, not a fresh ending).
+   * Synchronous: the worker was just booted by `init`, so its TT is already clean;
+   * the trainer re-`prefetch`es the current position right after to prime scoreMove.
+   */
+  function restore(snapshot: {
+    run: RunState
+    nodes: number
+    config: RunConfig
+    currentEval: EvalScore | null
+  }): void {
+    engine.stop()
+    pending = undefined
+    run.value = { ...snapshot.run }
+    nodes.value = snapshot.nodes
+    config.budget = snapshot.config.budget
+    config.blunderCap = snapshot.config.blunderCap
+    config.maxN = snapshot.config.maxN
+    currentEval.value = snapshot.currentEval
+  }
+
   return {
     // engine lifecycle (passthrough)
     ready: engine.ready,
@@ -184,6 +208,7 @@ export function useScoring() {
     currentWinProb,
     // actions
     reset,
+    restore,
     prefetch,
     scoreMove,
     searchBest,
