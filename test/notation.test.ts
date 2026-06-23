@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { uciToSan, toFigurine } from '~/lib/notation'
+import { uciToSan, toFigurine, uciLineToSan } from '~/lib/notation'
 
 const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
 
@@ -43,5 +43,24 @@ describe('toFigurine', () => {
     expect(toFigurine('e4')).toBe('e4')
     expect(toFigurine('O-O')).toBe('O-O')
     expect(toFigurine('O-O-O')).toBe('O-O-O')
+  })
+})
+
+describe('uciLineToSan', () => {
+  it('converts a whole line to SAN, ply by ply', () => {
+    expect(uciLineToSan(START, ['e2e4', 'e7e5', 'g1f3', 'b8c6'])).toEqual(['e4', 'e5', 'Nf3', 'Nc6'])
+  })
+
+  it('is empty for an empty line', () => {
+    expect(uciLineToSan(START, [])).toEqual([])
+  })
+
+  it('stops at the first illegal ply, keeping the legal prefix', () => {
+    // The repeated e2e4 is illegal (e2 is empty after 1.e4), so the walk halts there.
+    expect(uciLineToSan(START, ['e2e4', 'e2e4', 'g1f3'])).toEqual(['e4'])
+  })
+
+  it('handles a promotion ply', () => {
+    expect(uciLineToSan('8/P7/8/7k/8/8/8/4K3 w - - 0 1', ['a7a8q'])).toEqual(['a8=Q'])
   })
 })

@@ -35,6 +35,11 @@ const props = defineProps<{
   runError?: string | null
   /** True when this was a replay of an already-won, banked position — ladder untouched. */
   locked?: boolean
+  /** On a blunder: the opponent's punishing line (figurine SAN per ply) that refutes the
+   *  move played. Shows WHY it loses — never the move you should have made. null otherwise. */
+  refutation?: string[] | null
+  /** True while the refutation line is still being searched. */
+  refutationPending?: boolean
 }>()
 
 // No actions here: Restart / Next live in the persistent RunControls panel above, so
@@ -159,6 +164,17 @@ const points = computed(() => {
         <p v-if="status === 'blunder' && fatalLoss != null" class="cost">
           That move cost <span class="loss tnum">−{{ fatalLoss.toFixed(1) }}%</span> — find a better one.
         </p>
+
+        <!-- Why it fails: the opponent's punishing line from the position your move led to.
+             It shows the consequence, never the move you should have played. -->
+        <div v-if="refutationPending || (refutation && refutation.length)" class="why">
+          <p class="why-label">Why it fails</p>
+          <p v-if="refutationPending" class="why-line pending">reading the line…</p>
+          <p v-else class="why-line">{{ refutation!.join(' ') }}</p>
+          <p v-if="!refutationPending" class="why-cap">
+            your opponent's reply if you don't change course — now find the move that avoids it
+          </p>
+        </div>
 
         <template v-if="winHistory.length">
           <svg class="spark" :viewBox="`0 0 ${W} ${H}`" preserveAspectRatio="none">
@@ -306,6 +322,39 @@ const points = computed(() => {
 .cost .loss {
   color: var(--bad);
   font-weight: 700;
+}
+.why {
+  margin: 0.7rem 0 0;
+  padding: 0.55rem 0.75rem 0.6rem;
+  border-radius: 9px;
+  border: 1px solid color-mix(in srgb, var(--bad) 35%, var(--hairline));
+  background: color-mix(in srgb, var(--bad) 8%, var(--bg-sunken));
+}
+.why-label {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--bad);
+}
+.why-line {
+  margin: 0.25rem 0 0;
+  font-size: 1.15rem;
+  line-height: 1.45;
+  color: var(--text);
+  word-spacing: 0.12em;
+}
+.why-line.pending {
+  font-size: 0.85rem;
+  font-style: italic;
+  color: var(--text-muted);
+}
+.why-cap {
+  margin: 0.3rem 0 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--text-dim);
 }
 .spark {
   width: 100%;
