@@ -573,6 +573,14 @@ onBeforeUnmount(() => {
 }
 .board-col {
   flex: 0 0 auto;
+  /* Pin the column to the board's footprint — the board (--board-size) plus the 12px
+     frame padding on each side. Without a fixed width the column's max-content tracks
+     its widest child, so a long line in the controls or the run-over / "Banked" summary
+     below stretches the neon frame past the board and shifts the layout as it renders.
+     --board-size is set here so the stage and board inherit the same value. */
+  --board-size: min(80vmin, 480px);
+  width: calc(var(--board-size) + 24px);
+  min-width: 0;
 }
 .board-frame {
   position: relative;
