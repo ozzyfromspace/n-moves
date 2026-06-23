@@ -25,6 +25,9 @@ export interface Settings {
   /** On a blunder, reveal WHY it loses (the opponent's refutation line). Off = pure
    *  struggle: no post-mortem at all. Never reveals the move you should have played. */
   explainBlunders: boolean
+  /** How many of YOUR moves the interactive refutation explorer plays out before it
+   *  stops ("you've seen enough") — how deep the post-mortem digs. Captured at entry. */
+  explorerSteps: number
 }
 
 export const SETTINGS_DEFAULTS: Settings = {
@@ -35,6 +38,7 @@ export const SETTINGS_DEFAULTS: Settings = {
   blunderCap: DEFAULT_RUN_CONFIG.blunderCap,
   evalRange: null,
   explainBlunders: true,
+  explorerSteps: 4,
 }
 
 interface Bound {
@@ -46,7 +50,7 @@ interface Bound {
 
 /** Inclusive bounds + step for each numeric knob. The UI sliders and the clamp share these. */
 export const SETTINGS_BOUNDS: Record<
-  'nodes' | 'driftPerMove' | 'winsToAdvance' | 'lossesToDemote' | 'blunderCap',
+  'nodes' | 'driftPerMove' | 'winsToAdvance' | 'lossesToDemote' | 'blunderCap' | 'explorerSteps',
   Bound
 > = {
   // 200k is still far superhuman; 3M is the slow-but-strong end (see plan).
@@ -58,6 +62,9 @@ export const SETTINGS_BOUNDS: Record<
   // Busts in a row before you drop a level — how unforgiving a cold streak is.
   lossesToDemote: { min: 1, max: 10, step: 1 },
   blunderCap: { min: 5, max: 100, step: 1 },
+  // How many of your moves the refutation explorer plays out — a quick taste (2) to a
+  // deep demolition (8). Default 4 lands the point without dragging.
+  explorerSteps: { min: 2, max: 8, step: 1 },
 }
 
 /** Coerce one value into [min, max], snapped to `step`, falling back when it's junk. */
@@ -92,6 +99,7 @@ export function clampSettings(raw: Partial<Settings> | Record<string, unknown>):
     evalRange: clampRange(r.evalRange),
     explainBlunders:
       typeof r.explainBlunders === 'boolean' ? r.explainBlunders : SETTINGS_DEFAULTS.explainBlunders,
+    explorerSteps: clampNum(r.explorerSteps, SETTINGS_BOUNDS.explorerSteps, SETTINGS_DEFAULTS.explorerSteps),
   }
 }
 

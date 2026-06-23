@@ -36,11 +36,11 @@ const doneHead = computed(() => {
 const doneSub = computed(() => {
   if (props.ending === 'terminal') {
     return props.terminal === 'checkmate'
-      ? 'That move walked into mate. Reset to try another route — or Done, and find the move that avoids all this.'
-      : 'The line peters out here. Reset to try another route — or Done.'
+      ? 'That move walked into mate. Restart to try another route, or head back to the challenge and find the move that avoids all this.'
+      : 'The line peters out here. Restart to try another route, or head back to the challenge.'
   }
-  if (props.ending === 'error') return "Couldn't read the line just now. Reset to try again — or Done."
-  return 'Every path bleeds out the same way — that’s the point. Reset to try another, or Done and go find the move that avoids it.'
+  if (props.ending === 'error') return "Couldn't read the line just now. Restart to try again, or head back to the challenge."
+  return 'Every path bleeds out the same way — that’s the point. Restart to try another, or head back to the challenge and find the move that avoids it.'
 })
 
 // Eval badge colour: the more lost the line, the redder. Least-bad sits near muted.
@@ -87,8 +87,8 @@ function badgeStyle(c: ExplorerCandidate): Record<string, string> {
         </template>
 
         <footer class="ctrls">
-          <button type="button" class="nm-btn ghost" @click="emit('restart')">↺ Reset</button>
-          <button type="button" class="nm-btn" @click="emit('done')">Done</button>
+          <button type="button" class="nm-btn ghost" @click="emit('restart')">↺ Restart explorer</button>
+          <button type="button" class="nm-btn" @click="emit('done')">Back to challenge</button>
         </footer>
       </div>
     </div>
@@ -241,10 +241,12 @@ function badgeStyle(c: ExplorerCandidate): Record<string, string> {
 }
 .ctrls {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.6rem;
   margin-top: 1rem;
 }
 .ctrls .nm-btn {
+  flex: 1 1 auto;
   font-size: 1rem;
   padding: 0.5em 1.1em;
 }

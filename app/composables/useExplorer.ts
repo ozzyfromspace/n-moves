@@ -14,8 +14,9 @@ import type { Analysis, MultiLine } from '~/composables/useEngine'
 // the ONE Stockfish worker through injected functions — no second engine, no duplicate TT.
 // Nothing here is persisted: a refresh resumes the run summary, not the explorer.
 
-/** How far the post-mortem runs before "you've seen enough", and how many tries to show. */
-const MAX_PLAYER_MOVES = 4
+/** Fallback depth (player moves) when none is passed; the setting overrides it at entry. */
+const DEFAULT_MAX_PLAYER_MOVES = 4
+/** How many tries to surface on each of the player's turns. */
 const LINES = 3
 /** A beat so the engine's reply reads as a blow landing, not an instant teleport. */
 const ENGINE_REPLY_DELAY_MS = 350
@@ -41,6 +42,8 @@ export function useExplorer(deps: ExplorerDeps) {
   const ending = ref<ExplorerEnding>(null)
   const candidates = ref<ExplorerCandidate[]>([])
   const playerMoves = ref(0)
+  /** How far this post-mortem runs (player moves) — set from the setting at entry. */
+  const maxPlayerMoves = ref(DEFAULT_MAX_PLAYER_MOVES)
   /** True while an engine search is in flight (entry punishment, a reply, or the tries). */
   const thinking = ref(false)
 
@@ -91,7 +94,7 @@ export function useExplorer(deps: ExplorerDeps) {
 
   /** Player to move: search the top tries and show them — or stop if we've shown enough. */
   async function offerTries(my: number): Promise<void> {
-    if (playerMoves.value >= MAX_PLAYER_MOVES) return finish('enough')
+    if (playerMoves.value >= maxPlayerMoves.value) return finish('enough')
     phase.value = 'player'
     candidates.value = []
     thinking.value = true
@@ -133,10 +136,12 @@ export function useExplorer(deps: ExplorerDeps) {
     await offerTries(my)
   }
 
-  /** Open the explorer at the position the blunder led to (engine to move). */
-  async function enter(blunderFen: string): Promise<void> {
+  /** Open the explorer at the position the blunder led to (engine to move). `maxMoves`
+   *  caps how many of the player's moves it plays out (the explorer-depth setting). */
+  async function enter(blunderFen: string, maxMoves?: number): Promise<void> {
     const my = ++token
     rootFen = blunderFen
+    maxPlayerMoves.value = Math.max(1, Math.round(maxMoves ?? DEFAULT_MAX_PLAYER_MOVES))
     active.value = true
     ending.value = null
     candidates.value = []
@@ -190,7 +195,7 @@ export function useExplorer(deps: ExplorerDeps) {
     candidates,
     playerMoves,
     thinking,
-    maxPlayerMoves: MAX_PLAYER_MOVES,
+    maxPlayerMoves,
     // actions
     enter,
     restart,

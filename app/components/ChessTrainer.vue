@@ -488,7 +488,7 @@ function dropBanked(): void {
  */
 function startExplorer(): void {
   if (status.value !== 'blunder' || !settings.explainBlunders) return
-  void explorer.enter(fen.value)
+  void explorer.enter(fen.value, settings.explorerSteps)
 }
 
 /**
