@@ -49,15 +49,16 @@ const busted = computed(() => props.status === 'blunder' || props.status === 'bu
 // A win that pushed the streak over the top; a bust that pushed busts over the top.
 const advanced = computed(() => won.value && props.level > props.target)
 const demoted = computed(() => busted.value && props.level < props.target)
+// Tone + headline reflect the ACTUAL result, even on a banked replay — a blunder must
+// read as a blunder (red), not as success. `locked` only means "this won't move your
+// ladder"; it's surfaced via the banked chip + detail + suppressed pips, not by hiding
+// how the run actually went.
 const tone = computed(() =>
-  props.runError || props.locked || props.status === 'terminal'
-    ? 'neutral'
-    : won.value ? 'good' : 'bad',
+  props.runError || props.status === 'terminal' ? 'neutral' : won.value ? 'good' : 'bad',
 )
 
 const headline = computed(() => {
   if (props.runError) return 'Run stopped'
-  if (props.locked) return 'Banked ✓'
   if (advanced.value) return 'Level up!'
   if (demoted.value) return 'Demoted ↓'
   switch (props.status) {
@@ -72,7 +73,9 @@ const headline = computed(() => {
 const detail = computed(() => {
   if (props.runError) return props.runError
   if (props.locked) {
-    return 'You already cleared this one — it\'s banked. Replays won\'t move your ladder; hit Next for a fresh position.'
+    return won.value
+      ? 'Banked already — a practice replay, so your ladder\'s untouched. Next for a fresh position.'
+      : 'Banked already, so this replay doesn\'t cost you the ladder — but it was a real mistake. Find the better move, then Next.'
   }
   const wta = props.winsToAdvance
   const ltd = props.lossesToDemote
@@ -136,7 +139,9 @@ const points = computed(() => {
          body, which would flood the whole card with the border colour. -->
     <div :class="['card-frame', tone]">
       <div class="card">
-        <p :class="['headline', tone]">{{ headline }}</p>
+        <p :class="['headline', tone]">
+          {{ headline }}<span v-if="locked" class="banked-chip">banked</span>
+        </p>
         <p v-if="detail" class="detail">{{ detail }}</p>
 
         <div class="stats">
@@ -248,6 +253,22 @@ const points = computed(() => {
 }
 .headline.neutral {
   color: var(--text-muted);
+}
+.banked-chip {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 0.55rem;
+  transform: translateY(-0.12em);
+  font-family: var(--font-body);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-muted) 16%, transparent);
+  border: 1px solid var(--hairline);
+  padding: 0.16rem 0.44rem;
+  border-radius: 5px;
 }
 .detail {
   margin: 0.3rem 0 0;
