@@ -54,6 +54,14 @@ describe('clampSettings', () => {
     expect(clampSettings({ evalRange: [1] as unknown as [number, number] }).evalRange).toBeNull()
     expect(clampSettings({ evalRange: 'bad' as unknown as [number, number] }).evalRange).toBeNull()
   })
+
+  it('keeps explainBlunders when boolean, else falls back to the default', () => {
+    expect(clampSettings({ explainBlunders: false }).explainBlunders).toBe(false)
+    expect(clampSettings({ explainBlunders: true }).explainBlunders).toBe(true)
+    expect(clampSettings({ explainBlunders: 'on' as unknown as boolean }).explainBlunders).toBe(
+      SETTINGS_DEFAULTS.explainBlunders,
+    )
+  })
 })
 
 describe('parse / serialize', () => {

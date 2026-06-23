@@ -22,6 +22,9 @@ export interface Settings {
   blunderCap: number
   /** Eval-range filter in side-to-move cp; null = draw from every bucket. */
   evalRange: [number, number] | null
+  /** On a blunder, reveal WHY it loses (the opponent's refutation line). Off = pure
+   *  struggle: no post-mortem at all. Never reveals the move you should have played. */
+  explainBlunders: boolean
 }
 
 export const SETTINGS_DEFAULTS: Settings = {
@@ -31,6 +34,7 @@ export const SETTINGS_DEFAULTS: Settings = {
   lossesToDemote: 3,
   blunderCap: DEFAULT_RUN_CONFIG.blunderCap,
   evalRange: null,
+  explainBlunders: true,
 }
 
 interface Bound {
@@ -86,6 +90,8 @@ export function clampSettings(raw: Partial<Settings> | Record<string, unknown>):
     lossesToDemote: clampNum(r.lossesToDemote, SETTINGS_BOUNDS.lossesToDemote, SETTINGS_DEFAULTS.lossesToDemote),
     blunderCap: clampNum(r.blunderCap, SETTINGS_BOUNDS.blunderCap, SETTINGS_DEFAULTS.blunderCap),
     evalRange: clampRange(r.evalRange),
+    explainBlunders:
+      typeof r.explainBlunders === 'boolean' ? r.explainBlunders : SETTINGS_DEFAULTS.explainBlunders,
   }
 }
 

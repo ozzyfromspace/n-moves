@@ -237,7 +237,7 @@ async function revealRefutation(fenP: string, myRun: number): Promise<void> {
   refutationPending.value = true
   try {
     const analysis = await scoring.searchBest(fenP)
-    if (myRun !== runId) return
+    if (myRun !== runId || !settings.explainBlunders) return // superseded or toggled off mid-search
     const first = analysis.pv[0] ? parseUciMove(analysis.pv[0]) : null
     if (!first) return // terminal / no line to show
     const line = uciLineToSan(fenP, analysis.pv.slice(0, REFUTATION_PLIES)).map(toFigurine)
@@ -249,6 +249,20 @@ async function revealRefutation(fenP: string, myRun: number): Promise<void> {
     if (myRun === runId) refutationPending.value = false
   }
 }
+
+// Make the pure-struggle toggle live: turning it off hides any refutation on screen;
+// turning it back on while a blunder is showing re-derives it for the current position.
+watch(
+  () => settings.explainBlunders,
+  (on) => {
+    if (!on) {
+      refutation.value = null
+      refutationPending.value = false
+    } else if (phase.value === 'over' && status.value === 'blunder' && !refutation.value) {
+      void revealRefutation(fen.value, runId)
+    }
+  },
+)
 
 /** Snapshot the live settings + the ladder level into the engine + run config for
  *  this run. Applied at run start (not reactively) so a mid-run tweak can't skew an
@@ -326,7 +340,8 @@ async function onMove(payload: { orig: Key; dest: Key }): Promise<void> {
       endRun()
       // On a blunder, show why that move loses — the opponent's punishing line from the
       // position it led to (fen.value, after your move), never the move you should've played.
-      if (status.value === 'blunder') void revealRefutation(fen.value, myRun)
+      // Gated by the pure-struggle setting (off → no post-mortem).
+      if (status.value === 'blunder' && settings.explainBlunders) void revealRefutation(fen.value, myRun)
       return
     }
 
