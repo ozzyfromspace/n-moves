@@ -17,7 +17,9 @@
     "typecheck": "nuxt typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
-    "build:positions": "node --experimental-strip-types scripts/build-positions.ts"
+    "build:positions": "node --experimental-strip-types scripts/build-positions.ts",
+    "deploy:preview": "pnpm build && npx vercel deploy --prebuilt",
+    "deploy:prod": "pnpm build && npx vercel deploy --prebuilt --prod"
   },
   "dependencies": {
     "chess.js": "^1.4.0",
