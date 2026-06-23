@@ -4,10 +4,13 @@ import { fileURLToPath } from 'node:url'
 import { Chess } from 'chess.js'
 import {
   BUCKET_KEYS,
+  BUCKET_RANGES,
   bucketOf,
+  bucketsToRange,
   cpToStm,
   normalizeFen,
   pickPosition,
+  rangeToBuckets,
   sideToMoveOf,
   type Bucket,
   type PositionRecord,
@@ -81,6 +84,45 @@ describe('normalizeFen', () => {
   it('leaves a full six-field FEN untouched', () => {
     const full = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 3 7'
     expect(normalizeFen(full)).toBe(full)
+  })
+})
+
+describe('bucket ranges', () => {
+  const order: Bucket[] = ['defending', 'worse', 'equal', 'better', 'winning']
+
+  it('partitions [-800, 800] with no gap or overlap', () => {
+    for (let i = 1; i < order.length; i++) {
+      // each band starts exactly one cp above where the previous one ended
+      expect(BUCKET_RANGES[order[i]!][0]).toBe(BUCKET_RANGES[order[i - 1]!][1] + 1)
+    }
+    expect(BUCKET_RANGES.defending[0]).toBe(-800)
+    expect(BUCKET_RANGES.winning[1]).toBe(800)
+  })
+
+  it('agrees with bucketOf at both edges of every band', () => {
+    for (const b of BUCKET_KEYS) {
+      const [lo, hi] = BUCKET_RANGES[b]
+      expect(bucketOf(lo), `${b} lo`).toBe(b)
+      expect(bucketOf(hi), `${b} hi`).toBe(b)
+    }
+  })
+
+  it('bucketsToRange spans from..to, order-independent, full span → null', () => {
+    expect(bucketsToRange('defending', 'winning')).toBeNull() // whole spectrum = no filter
+    expect(bucketsToRange('winning', 'defending')).toBeNull()
+    expect(bucketsToRange('equal', 'equal')).toEqual([-50, 50])
+    expect(bucketsToRange('worse', 'better')).toEqual([-150, 150])
+    expect(bucketsToRange('better', 'worse')).toEqual([-150, 150])
+  })
+
+  it('rangeToBuckets inverts a stored range (full when null)', () => {
+    expect(rangeToBuckets(null)).toEqual({ from: 'defending', to: 'winning' })
+    expect(rangeToBuckets([-50, 50])).toEqual({ from: 'equal', to: 'equal' })
+    expect(rangeToBuckets([-150, 150])).toEqual({ from: 'worse', to: 'better' })
+    expect(rangeToBuckets(bucketsToRange('defending', 'equal'))).toEqual({
+      from: 'defending',
+      to: 'equal',
+    })
   })
 })
 

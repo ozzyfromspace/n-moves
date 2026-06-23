@@ -11,7 +11,7 @@ const props = defineProps<{
   status: RunStatus
   /** Plies survived this run. */
   n: number
-  /** Best n this session. */
+  /** Best n ever (all-time, from persisted history). */
   bestN: number
   /** Cumulative win% lost vs best. */
   drift: number
@@ -86,7 +86,7 @@ const points = computed(() => {
         </div>
         <div class="stat">
           <span class="num muted">{{ bestN }}</span>
-          <span class="lbl">session best</span>
+          <span class="lbl">best ever</span>
         </div>
       </div>
 

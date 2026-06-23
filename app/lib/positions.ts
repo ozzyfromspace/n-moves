@@ -56,6 +56,41 @@ export function bucketOf(cpStm: number): Bucket | null {
   return null
 }
 
+/**
+ * The side-to-move cp span of each bucket. Integer-exact (Lichess/engine cp are
+ * integers), so these partition [-800, 800] with no gap — the same boundaries
+ * `bucketOf` uses, just as explicit [min, max] pairs the settings filter can read.
+ */
+export const BUCKET_RANGES: Record<Bucket, [number, number]> = {
+  defending: [-CP_KEEP_LIMIT, -151],
+  worse: [-150, -51],
+  equal: [-50, 50],
+  better: [51, 150],
+  winning: [151, CP_KEEP_LIMIT],
+}
+
+/**
+ * The cp range covering buckets `from`…`to` inclusive, order-independent. Returns
+ * null when the pair spans the whole kept spectrum (defending→winning) — i.e. "no
+ * filter" — so callers can pass it straight to `pickPosition`'s `range` (or omit it).
+ */
+export function bucketsToRange(from: Bucket, to: Bucket): [number, number] | null {
+  const a = BUCKET_KEYS.indexOf(from)
+  const z = BUCKET_KEYS.indexOf(to)
+  const lo = BUCKET_RANGES[a <= z ? from : to][0]
+  const hi = BUCKET_RANGES[a <= z ? to : from][1]
+  if (lo <= -CP_KEEP_LIMIT && hi >= CP_KEEP_LIMIT) return null
+  return [lo, hi]
+}
+
+/** Inverse of `bucketsToRange`: which buckets a stored cp range spans (full when null). */
+export function rangeToBuckets(range: [number, number] | null): { from: Bucket; to: Bucket } {
+  const first = BUCKET_KEYS[0]
+  const last = BUCKET_KEYS[BUCKET_KEYS.length - 1]!
+  if (!range) return { from: first, to: last }
+  return { from: bucketOf(range[0]) ?? first, to: bucketOf(range[1]) ?? last }
+}
+
 /** The side to move as read from a FEN's second field. Defaults to white if absent. */
 export function sideToMoveOf(fen: string): 'white' | 'black' {
   return fen.trim().split(/\s+/)[1] === 'b' ? 'black' : 'white'

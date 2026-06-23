@@ -31,15 +31,17 @@ const {
 } = useChessGame() // a real start is loaded by startRun once positions resolve
 
 const scoring = useScoring()
-const { searching, error, currentWinProb, drift, n, status, config, slipThreshold, over } = scoring
+const { searching, error, currentWinProb, drift, n, status, config, slipThreshold, nodes, over } =
+  scoring
 
 const positions = usePositions()
+const { settings } = useSettings()
+const { allTimeBestN, record: recordRun, load: loadHistory } = useHistory()
 
 const phase = ref<Phase>('booting')
 const humanColor = ref<Color>('white')
 // The start currently in play — held so "Retry" reloads the exact same position.
 const currentPosition = ref<PositionRecord | null>(null)
-const sessionBestN = ref(0)
 const runError = ref<string | null>(null)
 
 // The current slip (player strayed ≥ slipThreshold): `played`/`best` are SAN —
@@ -108,13 +110,39 @@ function applySlip(s: ScoredMove, playedSan: string, fenBefore: string): void {
 }
 
 function endRun(): void {
+  // Record genuine rule-based endings (terminal / budget / blunder / max-n), but not
+  // the backstop error path — there the run is still 'active' and only an engine
+  // failure stopped it. record() bumps the all-time best synchronously, so the
+  // run-over screen already shows a fresh record.
+  if (currentPosition.value && status.value !== 'active') {
+    recordRun({
+      n: n.value,
+      drift: drift.value,
+      status: status.value,
+      startFen: currentPosition.value.fen,
+      nodes: nodes.value,
+      budget: config.budget,
+      blunderCap: config.blunderCap,
+      maxN: config.maxN,
+    })
+  }
   phase.value = 'over'
-  if (n.value > sessionBestN.value) sessionBestN.value = n.value
+}
+
+/** Snapshot the live settings into the engine + run config for this run. Applied at
+ *  run start (not reactively) so a mid-run tweak can't skew an in-flight comparison. */
+function applySettings(): void {
+  nodes.value = settings.nodes
+  config.budget = settings.budget
+  config.blunderCap = settings.blunderCap
+  config.maxN = settings.maxN
+  slipThreshold.value = settings.slipThreshold
 }
 
 /** Load a position, reset the run, and prefetch the player's first move. */
 async function startRun(fen0: string): Promise<void> {
   const myRun = ++runId
+  applySettings()
   runError.value = null
   slip.value = null
   arrow.value = []
@@ -229,11 +257,14 @@ async function continueFromSlip(): Promise<void> {
   }
 }
 
-/** Draw a fresh start (bucket-balanced) and begin a run on it. */
+/** Draw a fresh start (bucket-balanced, honouring the eval-range filter) and run it. */
 async function nextPosition(): Promise<void> {
-  const pos = positions.pick()
+  const range = settings.evalRange
+  const pos = positions.pick(range ? { range } : undefined)
   if (!pos) {
-    runError.value = positions.error.value ?? 'No positions available.'
+    runError.value = range
+      ? 'No starts match the eval-range filter — widen it in settings.'
+      : positions.error.value ?? 'No positions available.'
     phase.value = 'over'
     return
   }
@@ -248,6 +279,7 @@ async function retryPosition(): Promise<void> {
 }
 
 onMounted(async () => {
+  void loadHistory() // hydrates best-n + recent runs in the background; never blocks play
   try {
     await scoring.init()
     await positions.load() // nextPosition surfaces a load failure as a run error
@@ -297,7 +329,7 @@ onBeforeUnmount(() => { runId++ })
             v-if="phase === 'over'"
             :status="status"
             :n="n"
-            :best-n="sessionBestN"
+            :best-n="allTimeBestN"
             :drift="drift"
             :budget="config.budget"
             :blunder-cap="config.blunderCap"
@@ -321,9 +353,11 @@ onBeforeUnmount(() => { runId++ })
           :drift="drift"
           :budget="config.budget"
           :n="n"
-          :best-n="sessionBestN"
+          :best-n="allTimeBestN"
           :status="status"
         />
+        <SettingsPanel />
+        <HistoryPanel />
       </aside>
     </div>
   </main>

@@ -13,7 +13,7 @@ const props = defineProps<{
   budget: number
   /** Plies survived this run. */
   n: number
-  /** Best n this session. */
+  /** Best n ever (all-time, from persisted history). */
   bestN: number
   status: RunStatus
 }>()
@@ -68,7 +68,7 @@ const statusLabel: Record<RunStatus, string> = {
       </div>
       <div class="counter">
         <span class="big muted">{{ bestN }}</span>
-        <span class="label">session best</span>
+        <span class="label">best ever</span>
       </div>
     </div>
 
