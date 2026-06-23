@@ -88,10 +88,10 @@ onBeforeUnmount(() => {
 
 // One atomic re-sync whenever any position-affecting prop changes. Vue batches
 // the simultaneous updates from a single chess.js move into one cg.set().
+// Orientation is deliberately NOT here — it needs the unlock dance below.
 watch(
   () => [
     props.fen,
-    props.orientation,
     props.turnColor,
     props.dests,
     props.movableColor,
@@ -102,13 +102,29 @@ watch(
   () => {
     cg?.set({
       fen: props.fen,
-      orientation: props.orientation,
       turnColor: props.turnColor,
       lastMove: props.lastMove,
       check: props.check,
       viewOnly: props.viewOnly,
       movable: { color: props.movableColor, dests: props.dests },
     })
+  },
+)
+
+// Orientation flips need their own handling. chessground re-creates the board
+// element on an orientation change (set → toggleOrientation → redrawAll), and
+// bindBoard SKIPS attaching pointer listeners while viewOnly is true. A flip during
+// a locked phase therefore leaves the fresh board inert — the viewOnly-init trap,
+// re-triggered. Every black-to-move start arrives via the locked 'scoring' phase, so
+// this bit every flipped board. Flip while explicitly unlocked (so the re-bind
+// takes), then restore the real lock; the order of the three sets matters.
+watch(
+  () => props.orientation,
+  () => {
+    if (!cg) return
+    cg.set({ viewOnly: false })
+    cg.set({ orientation: props.orientation })
+    cg.set({ viewOnly: props.viewOnly })
   },
 )
 
