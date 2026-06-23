@@ -5,14 +5,14 @@
 // Usage — runs under Node's TypeScript stripping (Node ≥ 22.6; ≥ 23 runs .ts directly).
 // Invoke node directly so the args reach the script — `pnpm run` forwards a literal
 // `--` that parseArgs then rejects as a positional:
-//   node --experimental-strip-types scripts/build-positions.ts --per-bucket 800 --max-lines 3000000
+//   node --experimental-strip-types scripts/build-positions.ts --per-bucket 2000 --max-lines 8000000
 //
 // Decompression: this uses node's native zstd, but some Node builds (seen on 25.x)
 // silently emit zero bytes. The reliable path is the zstd CLI feeding a pre-decompressed
 // --source — a truncated prefix of the dump decodes fine, which also bounds the download:
-//   curl -s -r 0-80000000 https://database.lichess.org/lichess_db_eval.jsonl.zst -o eval.zst
+//   curl -s -r 0-400000000 https://database.lichess.org/lichess_db_eval.jsonl.zst -o eval.zst
 //   zstd -d -c eval.zst > eval.jsonl          # "premature end" at the tail is expected
-//   node --experimental-strip-types scripts/build-positions.ts --source eval.jsonl --per-bucket 800
+//   node --experimental-strip-types scripts/build-positions.ts --source eval.jsonl --per-bucket 2000 --max-lines 8000000
 //
 // The dump (https://database.lichess.org) is NDJSON+zstd, ~21 GB compressed. We never
 // download it whole: stream → decompress → parse → reservoir-sample each eval bucket →
@@ -141,7 +141,7 @@ async function main(): Promise<void> {
   const { values } = parseArgs({
     options: {
       source: { type: 'string', default: DEFAULT_SOURCE },
-      'per-bucket': { type: 'string', default: '600' },
+      'per-bucket': { type: 'string', default: '2000' }, // 5 buckets → ~10k starts
       'max-lines': { type: 'string', default: '2000000' },
       out: { type: 'string', default: 'public/positions/positions.json' },
     },
