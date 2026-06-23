@@ -43,6 +43,21 @@ const { record: recordRun, load: loadHistory } = useHistory()
 const { level, streak, busts, record: recordLadder } = useLadder()
 const activeRun = useActiveRun()
 
+// The interactive refutation explorer, opened from a blunder summary. It runs on its OWN
+// board (the finished run is left untouched) but borrows the one Stockfish worker through
+// these scoring functions — no second engine. It opens one ply past the blunder, so it
+// only ever shows how the losing lines lose, never the move that should have been played.
+// reactive() so the explorer's refs auto-unwrap under `explorer.*` in both script and
+// template — and stay namespaced, clear of the live board's same-named refs (fen, dests,
+// turnColor, lastMove, check, terminal) that are already destructured above.
+const explorer = reactive(
+  useExplorer({
+    analyzeLines: scoring.analyzeLines,
+    searchBest: scoring.searchBest,
+    stop: scoring.stop,
+  }),
+)
+
 const phase = ref<Phase>('booting')
 const humanColor = ref<Color>('white')
 // The start currently in play — held so "Retry" reloads the exact same position.
@@ -103,6 +118,20 @@ const viewIndex = computed(() => viewPly.value ?? tip.value)
 // no input — so you can look back without disturbing play. Orientation stays the
 // player's side throughout (handled separately, never flips on a scrub).
 const view = computed(() => {
+  // Exploring: the board IS the post-mortem — its live position, with input enabled only
+  // on the player's turn (the engine's punishing replies are watched, never interrupted).
+  if (explorer.active) {
+    const playerTurn = explorer.phase === 'player'
+    return {
+      fen: explorer.fen,
+      turnColor: explorer.turnColor,
+      dests: (playerTurn ? explorer.dests : undefined) as Dests | undefined,
+      movableColor: (playerTurn ? humanColor.value : undefined) as Color | undefined,
+      lastMove: explorer.lastMove,
+      check: explorer.check,
+      viewOnly: !playerTurn,
+    }
+  }
   if (viewPly.value === null) {
     return {
       fen: fen.value,
@@ -126,13 +155,26 @@ const view = computed(() => {
   }
 })
 
-// The refutation arrow — only on the frozen final position (run over, viewing live), never
+// Board annotations. While exploring, the player's turn shows the engine's top tries as
+// arrows (the least-bad one in cyan, the rest in amber). Otherwise it's the static
+// refutation arrow — only on the frozen final position (run over, viewing live), never
 // while scrubbing the past, since the arrow is a move in THIS position, not an earlier one.
-const boardShapes = computed<DrawShape[]>(() =>
-  phase.value === 'over' && viewPly.value === null && refutation.value
+const boardShapes = computed<DrawShape[]>(() => {
+  if (explorer.active) {
+    if (explorer.phase !== 'player') return []
+    return explorer.candidates
+      .map((c) => {
+        const m = parseUciMove(c.uci)
+        return m
+          ? ({ orig: m.from as Key, dest: m.to as Key, brush: c.best ? 'blue' : 'yellow' } as DrawShape)
+          : null
+      })
+      .filter((s): s is DrawShape => s !== null)
+  }
+  return phase.value === 'over' && viewPly.value === null && refutation.value
     ? [refutation.value.shape]
-    : [],
-)
+    : []
+})
 
 /** Step the scrubber by `delta` plies, clamping; stepping onto the tip returns to live. */
 function scrubBy(delta: number): void {
@@ -309,6 +351,12 @@ async function startRun(fen0: string): Promise<void> {
 }
 
 async function onMove(payload: { orig: Key; dest: Key }): Promise<void> {
+  // Exploring: every drag is a try in the post-mortem, routed to the explorer (its board,
+  // not the finished run). orig+dest is a UCI move; a promotion auto-queens there too.
+  if (explorer.active) {
+    if (explorer.phase === 'player') void explorer.play(payload.orig + payload.dest)
+    return
+  }
   // Only the live tip on the player's turn accepts input (the past is view-only), but
   // guard anyway so a scrubbed view can never inject a move into the live game.
   if (phase.value !== 'player' || viewPly.value !== null) return
@@ -433,6 +481,17 @@ function dropBanked(): void {
 }
 
 /**
+ * Open the interactive refutation explorer from the blunder summary. Enters at fen.value —
+ * the position the blunder led to (opponent/engine to move), the same frozen board on
+ * screen — so it never reveals the move that should have been played. Gated to a blunder
+ * with post-mortems enabled (matches the static refutation + the pure-struggle toggle).
+ */
+function startExplorer(): void {
+  if (status.value !== 'blunder' || !settings.explainBlunders) return
+  void explorer.enter(fen.value)
+}
+
+/**
  * Resume a persisted run exactly: rebuild the board by replaying every recorded ply,
  * re-seat the scoring state machine + engine config, and restore the win% history and
  * view. Deliberately does NOT touch history or the ladder — an 'over' snapshot was
@@ -478,6 +537,7 @@ function restoreRun(s: ActiveRun): void {
 function onKey(e: KeyboardEvent): void {
   if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
   if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return
+  if (explorer.active) return // exploring owns the board; the run scrubber is hidden
   if (tip.value === 0) return // nothing to scrub
   const el = document.activeElement as HTMLElement | null
   if (
@@ -547,14 +607,16 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <p :class="['status', phase]">
+        <p v-if="!explorer.active" :class="['status', phase]">
           <span v-if="searching" class="spinner" />
           {{ statusText }}
         </p>
 
         <!-- Persistent nav: scrub the run with ◀ / ▶ (or ← / →) and restart / move on.
-             Always mounted — during play and on the run-over screen alike. -->
+             Mounted during play and on the run-over screen alike — but hidden while the
+             explorer owns the board (its own controls take over). -->
         <RunControls
+          v-if="!explorer.active"
           :ply="viewIndex"
           :total-plies="tip"
           :at-live="atLive"
@@ -568,9 +630,10 @@ onBeforeUnmount(() => {
         />
 
         <!-- Below the board, never over it — the final position stays visible to study
-             on every ending (win, blunder, drift, terminal). -->
+             on every ending (win, blunder, drift, terminal). Swapped out for the explorer
+             panel once you drop into the interactive post-mortem. -->
         <RunSummary
-          v-if="phase === 'over'"
+          v-if="phase === 'over' && !explorer.active"
           :status="status"
           :n="n"
           :target="playedTarget"
@@ -588,6 +651,23 @@ onBeforeUnmount(() => {
           :locked="bankedAtStart"
           :refutation="refutation?.line ?? null"
           :refutation-pending="refutationPending"
+          :can-explore="status === 'blunder' && settings.explainBlunders"
+          @explore="startExplorer"
+        />
+
+        <!-- The interactive refutation explorer — replaces the summary while open. -->
+        <ExplorerPanel
+          v-if="explorer.active"
+          :phase="explorer.phase"
+          :ending="explorer.ending"
+          :candidates="explorer.candidates"
+          :player-moves="explorer.playerMoves"
+          :max-player-moves="explorer.maxPlayerMoves"
+          :thinking="explorer.thinking"
+          :terminal="explorer.terminal"
+          @pick="explorer.play"
+          @restart="explorer.restart"
+          @done="explorer.exit"
         />
       </div>
 

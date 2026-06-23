@@ -14,6 +14,8 @@ export interface UciInfo {
   nodes?: number
   nps?: number
   timeMs?: number
+  /** PV rank under MultiPV (1 = best). Absent/undefined in single-PV searches. */
+  multipv?: number
   /** Centipawns, side-to-move relative. Mutually exclusive with `mate`. */
   cp?: number
   /** Mate in N plies, signed: + = side-to-move delivers mate, - = gets mated. */
@@ -46,6 +48,7 @@ export function parseInfoLine(line: string): UciInfo | null {
       case 'nodes': info.nodes = intAt(t, ++i); break
       case 'nps': info.nps = intAt(t, ++i); break
       case 'time': info.timeMs = intAt(t, ++i); break
+      case 'multipv': info.multipv = intAt(t, ++i); break
       case 'score':
         if (t[i + 1] === 'cp') { info.cp = intAt(t, i + 2); i += 2 }
         else if (t[i + 1] === 'mate') { info.mate = intAt(t, i + 2); i += 2 }

@@ -40,7 +40,13 @@ const props = defineProps<{
   refutation?: string[] | null
   /** True while the refutation line is still being searched. */
   refutationPending?: boolean
+  /** Offer the interactive explorer (a blunder, with post-mortems enabled). */
+  canExplore?: boolean
 }>()
+
+// The one action this card carries: open the interactive refutation explorer. Restart /
+// Next still live in RunControls above; this is the deeper "why", so it sits in the why block.
+const emit = defineEmits<{ explore: [] }>()
 
 // No actions here: Restart / Next live in the persistent RunControls panel above, so
 // they're reachable mid-run too, not only at the summary. This card is pure readout.
@@ -171,14 +177,18 @@ const points = computed(() => {
         </p>
 
         <!-- Why it fails: the opponent's punishing line from the position your move led to.
-             It shows the consequence, never the move you should have played. -->
-        <div v-if="refutationPending || (refutation && refutation.length)" class="why">
+             It shows the consequence, never the move you should have played. The explorer
+             button drops into the interactive version — play the losing lines out yourself. -->
+        <div v-if="refutationPending || (refutation && refutation.length) || canExplore" class="why">
           <p class="why-label">Why it fails</p>
           <p v-if="refutationPending" class="why-line pending">reading the line…</p>
-          <p v-else class="why-line">{{ refutation!.join(' ') }}</p>
-          <p v-if="!refutationPending" class="why-cap">
+          <p v-else-if="refutation && refutation.length" class="why-line">{{ refutation.join(' ') }}</p>
+          <p v-if="!refutationPending && refutation && refutation.length" class="why-cap">
             your opponent's reply if you don't change course — now find the move that avoids it
           </p>
+          <button v-if="canExplore" type="button" class="explore nm-btn ghost" @click="emit('explore')">
+            Explore the refutation →
+          </button>
         </div>
 
         <template v-if="winHistory.length">
@@ -376,6 +386,12 @@ const points = computed(() => {
   font-size: 0.72rem;
   line-height: 1.4;
   color: var(--text-dim);
+}
+.explore {
+  margin-top: 0.7rem;
+  width: 100%;
+  font-size: 1rem;
+  padding: 0.5em 1em;
 }
 .spark {
   width: 100%;
