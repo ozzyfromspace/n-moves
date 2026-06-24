@@ -60,6 +60,9 @@ const statusLabel: Record<RunStatus, string> = {
   budget: 'Drift spent — run over',
   'max-n': 'Clean run!',
   terminal: 'Game ended',
+  // The live run state machine never enters 'forfeit' (a bail is recorded directly, then a
+  // fresh run starts), so this label is just here to keep the map total.
+  forfeit: 'Skipped',
 }
 </script>
 

@@ -40,7 +40,16 @@ const props = defineProps<{
   refutation?: string[] | null
   /** True while the refutation line is still being searched. */
   refutationPending?: boolean
+  /** Offer the interactive explorer (a blunder, with post-mortems enabled). */
+  canExplore?: boolean
+  /** Offer the continuation explorer ("play it on") — a clean win or a drift bust. */
+  canContinue?: boolean
 }>()
+
+// The actions this card carries: open the refutation explorer (the deeper "why", in the
+// why block) or the continuation explorer ("play it on", after a win/bust). Restart / Next
+// still live in RunControls above.
+const emit = defineEmits<{ explore: []; continue: [] }>()
 
 // No actions here: Restart / Next live in the persistent RunControls panel above, so
 // they're reachable mid-run too, not only at the summary. This card is pure readout.
@@ -166,19 +175,34 @@ const points = computed(() => {
           <span class="track-cap">{{ pipCap }}</span>
         </div>
 
+        <!-- Play it on: a clean win or a drift bust both leave the game going — drop into the
+             continuation explorer to test whether you'd actually hold it from here. -->
+        <div v-if="canContinue" class="continue">
+          <p class="continue-cap">{{
+            won
+              ? 'You held it — but could you keep holding? Play a few more and find out.'
+              : 'Out of budget — but is the position really lost? Play it on and see.'
+          }}</p>
+          <button type="button" class="playon nm-btn" @click="emit('continue')">Play it on →</button>
+        </div>
+
         <p v-if="status === 'blunder' && fatalLoss != null" class="cost">
           That move cost <span class="loss tnum">−{{ fatalLoss.toFixed(1) }}%</span> — find a better one.
         </p>
 
         <!-- Why it fails: the opponent's punishing line from the position your move led to.
-             It shows the consequence, never the move you should have played. -->
-        <div v-if="refutationPending || (refutation && refutation.length)" class="why">
+             It shows the consequence, never the move you should have played. The explorer
+             button drops into the interactive version — play the losing lines out yourself. -->
+        <div v-if="refutationPending || (refutation && refutation.length) || canExplore" class="why">
           <p class="why-label">Why it fails</p>
           <p v-if="refutationPending" class="why-line pending">reading the line…</p>
-          <p v-else class="why-line">{{ refutation!.join(' ') }}</p>
-          <p v-if="!refutationPending" class="why-cap">
+          <p v-else-if="refutation && refutation.length" class="why-line">{{ refutation.join(' ') }}</p>
+          <p v-if="!refutationPending && refutation && refutation.length" class="why-cap">
             your opponent's reply if you don't change course — now find the move that avoids it
           </p>
+          <button v-if="canExplore" type="button" class="explore nm-btn ghost" @click="emit('explore')">
+            Explore the refutation →
+          </button>
         </div>
 
         <template v-if="winHistory.length">
@@ -344,6 +368,20 @@ const points = computed(() => {
   color: var(--bad);
   font-weight: 700;
 }
+.continue {
+  margin: 0.9rem 0 0.2rem;
+}
+.continue-cap {
+  margin: 0 0 0.5rem;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+.playon {
+  width: 100%;
+  font-size: 1.05rem;
+  padding: 0.55em 1em;
+}
 .why {
   margin: 0.7rem 0 0;
   padding: 0.55rem 0.75rem 0.6rem;
@@ -376,6 +414,12 @@ const points = computed(() => {
   font-size: 0.72rem;
   line-height: 1.4;
   color: var(--text-dim);
+}
+.explore {
+  margin-top: 0.7rem;
+  width: 100%;
+  font-size: 1rem;
+  padding: 0.5em 1em;
 }
 .spark {
   width: 100%;

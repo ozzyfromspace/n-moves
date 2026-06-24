@@ -35,6 +35,21 @@ export interface Analysis {
   nodes?: number
 }
 
+/** One ranked line from a MultiPV search (rank 1 = engine's best). */
+export interface MultiLine {
+  /** PV rank, 1-based (1 = best). */
+  multipv: number
+  /** The line's first move, long-algebraic (= pv[0]). */
+  move: string
+  /** Centipawns, side-to-move relative. Undefined when `mate` is set. */
+  cp?: number
+  /** Mate in N plies, signed, side-to-move relative. Undefined when `cp` is set. */
+  mate?: number
+  /** Principal variation (long-algebraic) for this line. */
+  pv: string[]
+  depth?: number
+}
+
 interface LineWaiter {
   resolve: () => void
   reject: (e: Error) => void
@@ -42,10 +57,14 @@ interface LineWaiter {
 
 interface ActiveJob {
   fen: string
+  /** Multi-line (MultiPV) search? Routes the `bestmove` to the right resolver. */
+  multi: boolean
   resolve: (a: Analysis) => void
+  resolveMulti: (lines: MultiLine[]) => void
   reject: (e: Error) => void
-  /** Latest scored info line = the deepest one before `bestmove`. */
-  info?: UciInfo
+  /** Latest scored info line per PV rank (key = multipv, 1 in single-PV mode). The
+   *  deepest line for each rank wins, since later infos overwrite their key. */
+  infos: Map<number, UciInfo>
   timer?: ReturnType<typeof setTimeout>
   settled: boolean
 }
@@ -80,7 +99,8 @@ export function useEngine() {
     if (job.timer) clearTimeout(job.timer)
     active = undefined
     searching.value = false
-    const info = job.info
+    // Single-PV: the principal line is rank 1 (or the only line the engine reported).
+    const info = job.infos.get(1) ?? job.infos.values().next().value
     job.resolve({
       fen: job.fen,
       bestmove,
@@ -91,6 +111,28 @@ export function useEngine() {
       depth: info?.depth,
       nodes: info?.nodes,
     })
+  }
+
+  function settleActiveResolveMulti() {
+    if (!active || active.settled) return
+    const job = active
+    job.settled = true
+    if (job.timer) clearTimeout(job.timer)
+    active = undefined
+    searching.value = false
+    // One line per PV rank, ordered best-first; drop any rank that never produced a move.
+    const lines: MultiLine[] = [...job.infos.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([multipv, info]) => ({
+        multipv,
+        move: info.pv?.[0] ?? '(none)',
+        cp: info.cp,
+        mate: info.mate,
+        pv: info.pv ?? [],
+        depth: info.depth,
+      }))
+      .filter(l => l.move !== '(none)')
+    job.resolveMulti(lines)
   }
 
   function settleActiveReject(message: string) {
@@ -112,13 +154,21 @@ export function useEngine() {
 
     if (line.startsWith('info ')) {
       const info = parseInfoLine(line)
-      // Only keep scored search lines; skip 'info string ...' and progress.
-      if (info && (info.cp !== undefined || info.mate !== undefined)) active.info = info
+      // Only keep scored search lines; skip 'info string ...' and progress. Key by PV
+      // rank (1 when absent) so MultiPV ranks accumulate side by side; a single-PV
+      // search just overwrites rank 1 with each deeper line.
+      if (info && (info.cp !== undefined || info.mate !== undefined)) {
+        active.infos.set(info.multipv ?? 1, info)
+      }
       return
     }
     if (line.startsWith('bestmove')) {
-      const bm = parseBestMove(line)
-      settleActiveResolve(bm?.bestmove ?? '(none)', bm?.ponder)
+      if (active.multi) {
+        settleActiveResolveMulti()
+      } else {
+        const bm = parseBestMove(line)
+        settleActiveResolve(bm?.bestmove ?? '(none)', bm?.ponder)
+      }
     }
   }
 
@@ -185,7 +235,9 @@ export function useEngine() {
     return enqueue(async () => {
       await boot()
       return await new Promise<Analysis>((resolve, reject) => {
-        const job: ActiveJob = { fen, resolve, reject, settled: false }
+        const job: ActiveJob = {
+          fen, multi: false, resolve, resolveMulti: () => {}, reject, infos: new Map(), settled: false,
+        }
         active = job
         searching.value = true
         job.timer = setTimeout(
@@ -196,6 +248,38 @@ export function useEngine() {
         const sm = opts.searchmoves?.length ? ` searchmoves ${opts.searchmoves.join(' ')}` : ''
         post(`go nodes ${opts.nodes}${sm}`)
       })
+    })
+  }
+
+  /**
+   * Search `fen` for the top `multipv` lines at a fixed node count — the engine's best
+   * try plus the next-best alternatives, each with its own eval and PV. Sets MultiPV for
+   * this search and ALWAYS restores it to 1 afterward, so later single-line `analyze()`
+   * calls behave normally. Serialized FIFO behind any prior call, like `analyze`.
+   */
+  function analyzeMulti(fen: string, opts: { nodes: number; multipv: number }): Promise<MultiLine[]> {
+    return enqueue(async () => {
+      await boot()
+      post(`setoption name MultiPV value ${Math.max(1, opts.multipv)}`)
+      try {
+        return await new Promise<MultiLine[]>((resolve, reject) => {
+          const job: ActiveJob = {
+            fen, multi: true, resolve: () => {}, resolveMulti: resolve, reject, infos: new Map(), settled: false,
+          }
+          active = job
+          searching.value = true
+          job.timer = setTimeout(
+            () => settleActiveReject(`engine: search timed out after ${SEARCH_TIMEOUT_MS}ms`),
+            SEARCH_TIMEOUT_MS,
+          )
+          post(`position fen ${fen}`)
+          post(`go nodes ${opts.nodes}`)
+        })
+      } finally {
+        // Restore single-PV for every later analyze()/prefetch(); runs on the FIFO chain
+        // before the next job, and after a reject (timeout/error) too.
+        post('setoption name MultiPV value 1')
+      }
     })
   }
 
@@ -228,5 +312,5 @@ export function useEngine() {
   // Tear the worker down with the owning component/effect scope.
   onScopeDispose(dispose)
 
-  return { ready, searching, error, init, analyze, stop, newGame, dispose }
+  return { ready, searching, error, init, analyze, analyzeMulti, stop, newGame, dispose }
 }

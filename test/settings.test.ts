@@ -62,6 +62,15 @@ describe('clampSettings', () => {
       SETTINGS_DEFAULTS.explainBlunders,
     )
   })
+
+  it('clamps explorerSteps into its bounds and defaults junk', () => {
+    expect(clampSettings({ explorerSteps: 1 }).explorerSteps).toBe(2) // below min → min
+    expect(clampSettings({ explorerSteps: 99 }).explorerSteps).toBe(8) // above max → max
+    expect(clampSettings({ explorerSteps: 5 }).explorerSteps).toBe(5)
+    expect(clampSettings({ explorerSteps: 'deep' as unknown as number }).explorerSteps).toBe(
+      SETTINGS_DEFAULTS.explorerSteps,
+    )
+  })
 })
 
 describe('parse / serialize', () => {

@@ -9,6 +9,7 @@ import { parseUciMove } from '~/lib/uci'
 import { evalToWinProb } from '~/lib/winprob'
 import { buildTimeline } from '~/lib/timeline'
 import { toFigurine, uciLineToSan } from '~/lib/notation'
+import { START_LEVEL } from '~/lib/ladder'
 import { ACTIVE_RUN_VERSION, type ActiveRun } from '~/lib/activeRun'
 import type { Move } from 'chess.js'
 import type { Color, Dests, Key } from 'chessground/types'
@@ -42,6 +43,35 @@ const { settings } = useSettings()
 const { record: recordRun, load: loadHistory } = useHistory()
 const { level, streak, busts, record: recordLadder } = useLadder()
 const activeRun = useActiveRun()
+
+// The interactive refutation explorer, opened from a blunder summary. It runs on its OWN
+// board (the finished run is left untouched) but borrows the one Stockfish worker through
+// these scoring functions — no second engine. It opens one ply past the blunder, so it
+// only ever shows how the losing lines lose, never the move that should have been played.
+// reactive() so the explorer's refs auto-unwrap under `explorer.*` in both script and
+// template — and stay namespaced, clear of the live board's same-named refs (fen, dests,
+// turnColor, lastMove, check, terminal) that are already destructured above.
+const explorer = reactive(
+  useExplorer({
+    analyzeLines: scoring.analyzeLines,
+    searchBest: scoring.searchBest,
+    stop: scoring.stop,
+  }),
+)
+
+// The continuation explorer ("play it on") — opened from a win or a drift-bust summary to
+// test whether you'd hold the position going forward. Same one-engine borrowing as above;
+// runs on its own board. It's a live test, so it shows no hints (no candidate arrows).
+const continuation = reactive(
+  useContinuation({
+    searchBest: scoring.searchBest,
+    score: scoring.scoreIsolated,
+    stop: scoring.stop,
+  }),
+)
+
+// Either post-mortem owns the board: the run summary, status line and scrubber step aside.
+const exploring = computed(() => explorer.active || continuation.active)
 
 const phase = ref<Phase>('booting')
 const humanColor = ref<Color>('white')
@@ -77,6 +107,8 @@ const viewPly = ref<number | null>(null)
 // not from the choice you should have made), so the no-hints rule holds. null otherwise.
 const refutation = ref<{ shape: DrawShape; line: string[] } | null>(null)
 const refutationPending = ref(false)
+// True while the "skip mid-challenge counts as a loss" confirmation is up (see requestNext).
+const confirmingForfeit = ref(false)
 
 // Invalidates in-flight async continuations when the position changes underfoot
 // (e.g. the user hits "Next position" mid-search or mid-reply).
@@ -103,6 +135,33 @@ const viewIndex = computed(() => viewPly.value ?? tip.value)
 // no input — so you can look back without disturbing play. Orientation stays the
 // player's side throughout (handled separately, never flips on a scrub).
 const view = computed(() => {
+  // Exploring: the board IS the post-mortem — its live position, with input enabled only
+  // on the player's turn (the engine's punishing replies are watched, never interrupted).
+  if (explorer.active) {
+    const playerTurn = explorer.phase === 'player'
+    return {
+      fen: explorer.fen,
+      turnColor: explorer.turnColor,
+      dests: (playerTurn ? explorer.dests : undefined) as Dests | undefined,
+      movableColor: (playerTurn ? humanColor.value : undefined) as Color | undefined,
+      lastMove: explorer.lastMove,
+      check: explorer.check,
+      viewOnly: !playerTurn,
+    }
+  }
+  // Playing it on: the board IS the continuation — input on your turn, watched otherwise.
+  if (continuation.active) {
+    const playerTurn = continuation.phase === 'player'
+    return {
+      fen: continuation.fen,
+      turnColor: continuation.turnColor,
+      dests: (playerTurn ? continuation.dests : undefined) as Dests | undefined,
+      movableColor: (playerTurn ? humanColor.value : undefined) as Color | undefined,
+      lastMove: continuation.lastMove,
+      check: continuation.check,
+      viewOnly: !playerTurn,
+    }
+  }
   if (viewPly.value === null) {
     return {
       fen: fen.value,
@@ -126,13 +185,28 @@ const view = computed(() => {
   }
 })
 
-// The refutation arrow — only on the frozen final position (run over, viewing live), never
+// Board annotations. While exploring, the player's turn shows the engine's top tries as
+// arrows (the least-bad one in cyan, the rest in amber). Otherwise it's the static
+// refutation arrow — only on the frozen final position (run over, viewing live), never
 // while scrubbing the past, since the arrow is a move in THIS position, not an earlier one.
-const boardShapes = computed<DrawShape[]>(() =>
-  phase.value === 'over' && viewPly.value === null && refutation.value
+const boardShapes = computed<DrawShape[]>(() => {
+  if (explorer.active) {
+    if (explorer.phase !== 'player') return []
+    return explorer.candidates
+      .map((c) => {
+        const m = parseUciMove(c.uci)
+        return m
+          ? ({ orig: m.from as Key, dest: m.to as Key, brush: c.best ? 'blue' : 'yellow' } as DrawShape)
+          : null
+      })
+      .filter((s): s is DrawShape => s !== null)
+  }
+  // The continuation is a live test — never annotate the board (no-hints).
+  if (continuation.active) return []
+  return phase.value === 'over' && viewPly.value === null && refutation.value
     ? [refutation.value.shape]
-    : [],
-)
+    : []
+})
 
 /** Step the scrubber by `delta` plies, clamping; stepping onto the tip returns to live. */
 function scrubBy(delta: number): void {
@@ -309,6 +383,17 @@ async function startRun(fen0: string): Promise<void> {
 }
 
 async function onMove(payload: { orig: Key; dest: Key }): Promise<void> {
+  // Exploring: every drag is a try in the post-mortem, routed to the explorer (its board,
+  // not the finished run). orig+dest is a UCI move; a promotion auto-queens there too.
+  if (explorer.active) {
+    if (explorer.phase === 'player') void explorer.play(payload.orig + payload.dest)
+    return
+  }
+  // Playing it on: every drag is your continuation move (its board, not the finished run).
+  if (continuation.active) {
+    if (continuation.phase === 'player') void continuation.play(payload.orig + payload.dest)
+    return
+  }
   // Only the live tip on the player's turn accepts input (the past is view-only), but
   // guard anyway so a scrubbed view can never inject a move into the live game.
   if (phase.value !== 'player' || viewPly.value !== null) return
@@ -395,8 +480,83 @@ async function playOpponent(suggestedReply: string | null, myRun: number): Promi
   scoring.prefetch(fen.value).catch(() => {}) // prefetch the new position
 }
 
-/** Draw a fresh start (bucket-balanced, honouring the eval-range filter) and run it. */
+// Would clicking "Next" right now abandon a genuine, unfinished, non-banked run? If so it's
+// a forfeit — a loss — so you can't skip a hard start to protect the ladder. Not on the
+// run-over summary (already counted), the boot deal, or a free banked replay.
+const nextForfeits = computed(
+  () =>
+    !!currentPosition.value &&
+    status.value === 'active' &&
+    phase.value !== 'booting' &&
+    phase.value !== 'over' &&
+    !bankedAtStart.value,
+)
+
+// What a forfeit costs the ladder right now, surfaced in the confirmation so the choice is
+// informed. A bust clears the win streak and adds a strike; at the demotion threshold it
+// drops a level (never below the floor).
+const forfeitConsequence = computed(() => {
+  const ltd = Math.max(1, settings.lossesToDemote)
+  const nextBusts = busts.value + 1
+  if (nextBusts >= ltd && level.value > START_LEVEL) {
+    return `It drops you from level ${level.value} to ${level.value - 1}.`
+  }
+  if (level.value <= START_LEVEL) {
+    return streak.value > 0
+      ? `You're on the level-1 floor — no drop, but it wipes your ${streak.value}-clean streak.`
+      : `You're on the level-1 floor — no drop, but a bail is still a loss.`
+  }
+  const tail = `${ltd - nextBusts} more would drop you a level.`
+  return streak.value > 0
+    ? `Wipes your ${streak.value}-clean streak — strike ${nextBusts} of ${ltd} at level ${level.value}, ${tail}`
+    : `Strike ${nextBusts} of ${ltd} at level ${level.value} — ${tail}`
+})
+
+/** Record an abandoned live run as a loss: a history strike + a ladder bust. Called from
+ *  nextPosition once the user has confirmed; reads the run's live n/drift/params first,
+ *  before startRun resets them. Banked replays never reach here (nextForfeits gates it). */
+function forfeitRun(): void {
+  if (!currentPosition.value) return
+  recordRun({
+    n: n.value,
+    drift: drift.value,
+    status: 'forfeit',
+    startFen: currentPosition.value.fen,
+    nodes: nodes.value,
+    budget: config.budget,
+    blunderCap: config.blunderCap,
+    maxN: config.maxN,
+  })
+  recordLadder('forfeit', settings.winsToAdvance, settings.lossesToDemote) // a bust → streak/demotion
+}
+
+/** The "Next →" entry point: a free deal on the summary, but a confirmed forfeit mid-run. */
+function requestNext(): void {
+  if (nextForfeits.value) confirmingForfeit.value = true
+  else void nextPosition()
+}
+
+function confirmForfeit(): void {
+  confirmingForfeit.value = false
+  void nextPosition() // re-checks nextForfeits and records the loss before dealing
+}
+
+function cancelForfeit(): void {
+  confirmingForfeit.value = false
+}
+
+// When the modal opens, land focus on the safe choice (Keep playing) — so Enter/Space backs
+// out, not forfeits, and keyboard users start on the non-destructive default.
+const keepPlayingBtn = ref<HTMLButtonElement | null>(null)
+watch(confirmingForfeit, (open) => {
+  if (open) nextTick(() => keepPlayingBtn.value?.focus())
+})
+
+/** Draw a fresh start (bucket-balanced, honouring the eval-range filter) and run it. A live
+ *  challenge abandoned this way is forfeited (a loss) — but only after a successful deal, so
+ *  a failed deal (e.g. an over-narrow filter) leaves your run untouched. */
 async function nextPosition(): Promise<void> {
+  const forfeiting = nextForfeits.value
   const range = settings.evalRange
   const pos = positions.pick(range ? { range } : undefined)
   if (!pos) {
@@ -406,6 +566,7 @@ async function nextPosition(): Promise<void> {
     phase.value = 'over'
     return
   }
+  if (forfeiting) forfeitRun() // count the bail as a loss before the new run reseats state
   positionBanked.value = false // a fresh deal is ladder-eligible again (Restart keeps the bank)
   currentPosition.value = pos
   await startRun(pos.fen)
@@ -433,14 +594,41 @@ function dropBanked(): void {
 }
 
 /**
+ * Open the interactive refutation explorer from the blunder summary. Enters at fen.value —
+ * the position the blunder led to (opponent/engine to move), the same frozen board on
+ * screen — so it never reveals the move that should have been played. Gated to a blunder
+ * with post-mortems enabled (matches the static refutation + the pure-struggle toggle).
+ */
+function startExplorer(): void {
+  if (status.value !== 'blunder' || !settings.explainBlunders) return
+  void explorer.enter(fen.value, settings.explorerSteps)
+}
+
+/**
+ * Open the continuation explorer from a win/bust summary. Enters at fen.value — the run's
+ * final position (the engine is to move, since a run ends on your move before the reply) —
+ * and tests whether you'd hold it, scored against the same drift/blunder thresholds as the
+ * run, scaled to the explorer depth. No hints: it never annotates the board.
+ */
+function startContinuation(): void {
+  if (status.value !== 'max-n' && status.value !== 'budget') return
+  void continuation.enter(fen.value, {
+    humanColor: humanColor.value,
+    steps: settings.explorerSteps,
+    driftPerMove: settings.driftPerMove,
+    blunderCap: settings.blunderCap,
+  })
+}
+
+/**
  * Resume a persisted run exactly: rebuild the board by replaying every recorded ply,
  * re-seat the scoring state machine + engine config, and restore the win% history and
  * view. Deliberately does NOT touch history or the ladder — an 'over' snapshot was
  * already counted when it first ended (pre-refresh), and a 'player' snapshot is still
  * in progress; restore must never double-count either.
  */
-function restoreRun(s: ActiveRun): void {
-  runId++ // invalidate anything in flight (paranoia; nothing runs before mount)
+async function restoreRun(s: ActiveRun): Promise<void> {
+  const myRun = ++runId // invalidate anything in flight (paranoia; nothing runs before mount)
   currentPosition.value = s.position
   humanColor.value = s.humanColor
   playedTarget.value = s.playedTarget
@@ -467,17 +655,33 @@ function restoreRun(s: ActiveRun): void {
     phase.value = 'over'
     // Re-derive the refutation on a restored blunder (it isn't persisted): the rebuilt
     // board IS the position the blunder led to — a fatal move ends before the reply.
-    if (s.run.status === 'blunder') void revealRefutation(fen.value, runId)
+    if (s.run.status === 'blunder') void revealRefutation(fen.value, myRun)
     return
   }
+  // Unlock for input on a SEPARATE tick (we mount in the locked 'booting' phase, so the
+  // board is still locked here). A black-to-move resume flips the board orientation, and
+  // chessground only (re)binds pointer listeners when the board isn't viewOnly at flip
+  // time (events.bindBoard bails on viewOnly; set({orientation}) rebuilds the board). The
+  // flip therefore has to land while still locked, then we unlock the next tick — exactly
+  // like startRun's await before 'player'. Flipping and unlocking in one tick rebuilds the
+  // board with no listeners and leaves it inert though it's your move (the resume-path form
+  // of the viewOnly-init trap).
+  await nextTick()
+  if (myRun !== runId) return
   phase.value = 'player'
   scoring.prefetch(fen.value).catch(() => {}) // re-prime the search for the resumed position
 }
 
 /** ←/→ scrub the run's moves — unless a form field is focused or a modifier is held. */
 function onKey(e: KeyboardEvent): void {
+  if (confirmingForfeit.value) {
+    // Modal is up: Escape backs out (the safe default); swallow the scrub keys behind it.
+    if (e.key === 'Escape') { e.preventDefault(); cancelForfeit() }
+    return
+  }
   if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
   if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return
+  if (exploring.value) return // a post-mortem owns the board; the run scrubber is hidden
   if (tip.value === 0) return // nothing to scrub
   const el = document.activeElement as HTMLElement | null
   if (
@@ -501,7 +705,7 @@ onMounted(async () => {
     await positions.load() // nextPosition surfaces a load failure as a run error
     // Resume a run interrupted by a refresh; otherwise deal a fresh start.
     const saved = await activeRun.loadSaved()
-    if (saved) restoreRun(saved)
+    if (saved) await restoreRun(saved)
     else await nextPosition()
   } catch (e) {
     runError.value = (e as Error).message
@@ -547,14 +751,16 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <p :class="['status', phase]">
+        <p v-if="!exploring" :class="['status', phase]">
           <span v-if="searching" class="spinner" />
           {{ statusText }}
         </p>
 
         <!-- Persistent nav: scrub the run with ◀ / ▶ (or ← / →) and restart / move on.
-             Always mounted — during play and on the run-over screen alike. -->
+             Mounted during play and on the run-over screen alike — but hidden while the
+             explorer owns the board (its own controls take over). -->
         <RunControls
+          v-if="!exploring"
           :ply="viewIndex"
           :total-plies="tip"
           :at-live="atLive"
@@ -564,13 +770,14 @@ onBeforeUnmount(() => {
           @next="scrubBy(1)"
           @live="viewPly = null"
           @restart="retryPosition"
-          @next-position="nextPosition"
+          @next-position="requestNext"
         />
 
         <!-- Below the board, never over it — the final position stays visible to study
-             on every ending (win, blunder, drift, terminal). -->
+             on every ending (win, blunder, drift, terminal). Swapped out for the explorer
+             panel once you drop into the interactive post-mortem. -->
         <RunSummary
-          v-if="phase === 'over'"
+          v-if="phase === 'over' && !exploring"
           :status="status"
           :n="n"
           :target="playedTarget"
@@ -588,6 +795,39 @@ onBeforeUnmount(() => {
           :locked="bankedAtStart"
           :refutation="refutation?.line ?? null"
           :refutation-pending="refutationPending"
+          :can-explore="status === 'blunder' && settings.explainBlunders"
+          :can-continue="status === 'max-n' || status === 'budget'"
+          @explore="startExplorer"
+          @continue="startContinuation"
+        />
+
+        <!-- The interactive refutation explorer — replaces the summary while open. -->
+        <ExplorerPanel
+          v-if="explorer.active"
+          :phase="explorer.phase"
+          :ending="explorer.ending"
+          :candidates="explorer.candidates"
+          :player-moves="explorer.playerMoves"
+          :max-player-moves="explorer.maxPlayerMoves"
+          :thinking="explorer.thinking"
+          :terminal="explorer.terminal"
+          @pick="explorer.play"
+          @restart="explorer.restart"
+          @done="explorer.exit"
+        />
+
+        <!-- The continuation explorer ("play it on") — replaces the summary while open. -->
+        <ContinuationPanel
+          v-if="continuation.active"
+          :phase="continuation.phase"
+          :outcome="continuation.outcome"
+          :drift="continuation.drift"
+          :budget="continuation.budget"
+          :player-moves="continuation.playerMoves"
+          :max-player-moves="continuation.maxPlayerMoves"
+          :thinking="continuation.thinking"
+          @restart="continuation.restart"
+          @done="continuation.exit"
         />
       </div>
 
@@ -608,6 +848,22 @@ onBeforeUnmount(() => {
         <SettingsPanel :banked="positionBanked" @drop-banked="dropBanked" />
         <HistoryPanel />
       </aside>
+    </div>
+
+    <!-- Skipping a live challenge is a loss — confirm it, with the ladder cost spelled out,
+         so an accidental click can't quietly demote you. Escape / backdrop = keep playing. -->
+    <div v-if="confirmingForfeit" class="confirm-backdrop" @click.self="cancelForfeit">
+      <div class="confirm-card" role="alertdialog" aria-labelledby="cf-title" aria-describedby="cf-body">
+        <p id="cf-title" class="confirm-title">Skip this position?</p>
+        <p id="cf-body" class="confirm-body">
+          Moving on counts as a loss. {{ forfeitConsequence }}
+          <span class="confirm-hint">Restart keeps the same position for free.</span>
+        </p>
+        <div class="confirm-actions">
+          <button ref="keepPlayingBtn" type="button" class="nm-btn ghost" @click="cancelForfeit">Keep playing</button>
+          <button type="button" class="nm-btn danger" @click="confirmForfeit">Forfeit &amp; skip</button>
+        </div>
+      </div>
     </div>
   </main>
 </template>
@@ -756,6 +1012,79 @@ onBeforeUnmount(() => {
 }
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+/* Forfeit confirmation — a full-screen modal (z above the board's leaked piece z-indices). */
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(4, 8, 16, 0.66);
+  backdrop-filter: blur(3px);
+  animation: cf-fade 0.14s ease;
+}
+.confirm-card {
+  width: min(26rem, 100%);
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--bad) 45%, var(--hairline));
+  background: linear-gradient(160deg, var(--surface-2), var(--surface) 60%, var(--bg-sunken));
+  box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  padding: 1.2rem 1.3rem 1.1rem;
+}
+.confirm-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.confirm-body {
+  margin: 0.5rem 0 0;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.confirm-hint {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+.confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-top: 1.1rem;
+}
+.confirm-actions .nm-btn {
+  font-size: 1rem;
+  padding: 0.5em 1.1em;
+}
+/* The destructive choice reads red, not the default cyan. White text for contrast on the fill. */
+.confirm-actions .nm-btn.danger {
+  color: #fff;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--bad), #fff 20%) 0%,
+    var(--bad) 52%,
+    color-mix(in srgb, var(--bad), #000 18%) 100%
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 6px 18px -6px rgba(255, 59, 92, 0.6);
+}
+.confirm-actions .nm-btn.danger:hover {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 8px 26px -6px rgba(255, 59, 92, 0.85);
+}
+@keyframes cf-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .confirm-backdrop { animation: none; }
 }
 @media (max-width: 36rem) {
   .trainer {

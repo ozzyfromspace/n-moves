@@ -138,6 +138,18 @@ function fmtNodes(n: number): string {
         </span>
       </label>
 
+      <label v-show="settings.explainBlunders" class="row">
+        <span class="k" title="How many of your moves the refutation explorer plays out before it stops">Explorer</span>
+        <input
+          type="range"
+          :min="bounds.explorerSteps.min"
+          :max="bounds.explorerSteps.max"
+          :step="bounds.explorerSteps.step"
+          v-model.number="settings.explorerSteps"
+        >
+        <span class="v">{{ settings.explorerSteps }}</span>
+      </label>
+
       <div class="row range">
         <span class="k">Eval range</span>
         <div class="selects">

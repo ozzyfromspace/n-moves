@@ -30,12 +30,13 @@ describe('isHeld', () => {
     expect(isHeld('blunder')).toBe(false)
     expect(isHeld('budget')).toBe(false)
     expect(isHeld('terminal')).toBe(false)
+    expect(isHeld('forfeit')).toBe(false)
   })
 })
 
 describe('RUN_STATUS_SHORT', () => {
   it('labels every run status', () => {
-    const all: RunStatus[] = ['active', 'max-n', 'blunder', 'budget', 'terminal']
+    const all: RunStatus[] = ['active', 'max-n', 'blunder', 'budget', 'terminal', 'forfeit']
     for (const s of all) expect(RUN_STATUS_SHORT[s]).toBeTruthy()
   })
 })
